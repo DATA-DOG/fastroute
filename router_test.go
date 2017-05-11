@@ -24,7 +24,7 @@ func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
 
 func (m *mockResponseWriter) WriteHeader(int) {}
 
-func BenchmarkHttpRouter(b *testing.B) {
+func BenchmarkHttpRouterParam(b *testing.B) {
 	router := httprouter.New()
 	router.GET("/v1/users/:id", func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
 		w.Write([]byte(ps.ByName("id")))
@@ -43,12 +43,62 @@ func BenchmarkHttpRouter(b *testing.B) {
 	}
 }
 
-func BenchmarkRouter(b *testing.B) {
-	router := Route("/v1/users/:id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func BenchmarkRouterParam(b *testing.B) {
+	router := Route("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(Parameters(r).ByName("id")))
-	}))
+	})
 
 	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	w := &mockResponseWriter{}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		router.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkRouter5Routes(b *testing.B) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(Parameters(r).ByName("id")))
+	}
+
+	router := New(
+		Route("/home/:id", handler),
+		Route("/base/path/:id", handler),
+		Route("/home/user/:id", handler),
+		Route("/home/jey/:id/:cat", handler),
+		Route("/base/:id/user", handler),
+	)
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	w := &mockResponseWriter{}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		router.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkHttpRouter5Routes(b *testing.B) {
+	router := httprouter.New()
+	handler := func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
+		w.Write([]byte(ps.ByName("id")))
+	}
+	router.GET("/test/:id", handler)
+	router.GET("/puff/path/:id", handler)
+	router.GET("/home/user/:id", handler)
+	router.GET("/home/jey/:id/:cat", handler)
+	router.GET("/base/:id/user", handler)
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -74,10 +124,10 @@ func TestStaticRouteMatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b && router.Routes(req) == nil {
+		if b && router.Match(req) == nil {
 			t.Fatalf("expected to match: %s", p)
 		}
-		if !b && router.Routes(req) != nil {
+		if !b && router.Match(req) != nil {
 			t.Fatalf("did not expect to match: %s", p)
 		}
 	}
@@ -116,7 +166,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h := router.Routes(req)
+		h := router.Match(req)
 		if c.match && h == nil {
 			t.Fatalf("expected to match: %s", c.path)
 		}

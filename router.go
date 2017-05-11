@@ -28,17 +28,34 @@ func (ps Params) ByName(name string) string {
 	return ""
 }
 
+// Router is the robust interface allowing
+// to compose dynamic levels of request matchers
+// and all together implements http.Handler.
+//
+// Match func should return handler or nil
+// if it cannot process the request.
 type Router interface {
 	http.Handler
-	Routes(*http.Request) http.Handler
+
+	// Match should return nil if request
+	// cannot be matched. At the top Router
+	// nil could indicate that NotFound handler
+	// can be applied.
+	Match(*http.Request) http.Handler
 }
 
+// RouterFunc type is an adapter to allow the use of
+// ordinary functions as Routers. If f is a function
+// with the appropriate signature, RouterFunc(f) is a
+// Router that calls f.
 type RouterFunc func(*http.Request) http.Handler
 
-func (rf RouterFunc) Routes(r *http.Request) http.Handler {
+// Match calls f(r).
+func (rf RouterFunc) Match(r *http.Request) http.Handler {
 	return rf(r)
 }
 
+// ServeHTTP calls f(w, r).
 func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := rf(r)
 	if nil == h {
@@ -47,11 +64,18 @@ func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
+// New creates Router combined of given routes.
+// It attempts to match all routes in order, the first
+// matched route serves the request.
+//
+// Users may sort routes the way he prefers, or add
+// dynamic sorting goroutine, which calculates order
+// based on hits.
 func New(routes ...Router) Router {
 	return RouterFunc(func(r *http.Request) http.Handler {
 		var found http.Handler
 		for _, router := range routes {
-			if found = router.Routes(r); found != nil {
+			if found = router.Match(r); found != nil {
 				break
 			}
 		}
@@ -59,6 +83,15 @@ func New(routes ...Router) Router {
 	})
 }
 
+// Route creates Router which attempts
+// to match given path to handler.
+//
+// Handler is a standard http.Handler which
+// may be in the following formats:
+//  http.Handler
+//  http.HandlerFunc
+//  func(http.ResponseWriter, *http.Request)
+//
 func Route(path string, handler interface{}) Router {
 	p := "/" + strings.TrimLeft(path, "/")
 
