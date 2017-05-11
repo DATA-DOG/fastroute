@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 type mockResponseWriter struct{}
@@ -22,9 +24,28 @@ func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
 
 func (m *mockResponseWriter) WriteHeader(int) {}
 
-func BenchmarkDynamic(b *testing.B) {
-	router := Path("/v1/users/:id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(r.Context().Value(Params).(Parameters).ByName("id")))
+func BenchmarkHttpRouter(b *testing.B) {
+	router := httprouter.New()
+	router.GET("/v1/users/:id", func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
+		w.Write([]byte(ps.ByName("id")))
+	})
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	w := &mockResponseWriter{}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		router.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkRouter(b *testing.B) {
+	router := Route("/v1/users/:id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(Parameters(r).ByName("id")))
 	}))
 
 	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
@@ -40,34 +61,23 @@ func BenchmarkDynamic(b *testing.B) {
 	}
 }
 
-// func BenchmarkParams(b *testing.B) {
-// 	ps := make(Parameters, 1)
-// 	b.ReportAllocs()
-// 	b.ResetTimer()
-// 	for i := 0; i < b.N; i++ {
-// 		// ps = ps[:cap(ps)]
-// 		ps[0].Key = "a"
-// 		ps[0].Value = "v"
-// 	}
-// }
-
 func TestStaticRouteMatcher(t *testing.T) {
 	cases := map[string]bool{
 		"/users/hello":  true,
 		"/user/hello":   false,
 		"/users/hello/": false,
 	}
-	router := Get("/users/hello", http.NotFoundHandler())
+	router := Route("/users/hello", http.NotFoundHandler())
 
 	for p, b := range cases {
 		req, err := http.NewRequest("GET", p, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b && router.Route(req) == nil {
+		if b && router.Routes(req) == nil {
 			t.Fatalf("expected to match: %s", p)
 		}
-		if !b && router.Route(req) != nil {
+		if !b && router.Routes(req) != nil {
 			t.Fatalf("did not expect to match: %s", p)
 		}
 	}
@@ -79,9 +89,9 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		request = r
 	})
 	routes := []Router{
-		Get("/a/:b/c", handler),
-		Get("/category/:cid/product/*rest", handler),
-		Get("/users/:id/:bid/", handler),
+		Route("/a/:b/c", handler),
+		Route("/category/:cid/product/*rest", handler),
+		Route("/users/:id/:bid/", handler),
 	}
 
 	router := New(routes...)
@@ -106,7 +116,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h := router.Route(req)
+		h := router.Routes(req)
 		if c.match && h == nil {
 			t.Fatalf("expected to match: %s", c.path)
 		}
@@ -120,13 +130,9 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		for key, val := range c.params {
-			act := request.Context().Value(Params)
-			if v, ok := act.(Parameters); ok {
-				if v.ByName(key) != val {
-					t.Fatalf("param: %s expected %s does not match to: %s, case: %d", key, val, v, i)
-				}
-			} else {
-				t.Fatalf("could not locate param: %s, case: %d, val: %+v", key, i, act)
+			act := Parameters(req).ByName(key)
+			if act != val {
+				t.Fatalf("param: %s expected %s does not match to: %s, case: %d", key, val, act, i)
 			}
 		}
 	}
