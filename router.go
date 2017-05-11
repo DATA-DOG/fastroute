@@ -4,7 +4,33 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 )
+
+type paramKey string
+
+const Params = paramKey("parameters")
+
+// Param is a single URL parameter, consisting of a key and a value.
+type Parameter struct {
+	Key, Value string
+}
+
+// Params is a Param-slice, as returned by the router.
+// The slice is ordered, the first URL parameter is also the first slice value.
+// It is therefore safe to read values by the index.
+type Parameters []Parameter
+
+// ByName returns the value of the first Param which key matches the given name.
+// If no matching Param is found, an empty string is returned.
+func (ps Parameters) ByName(name string) string {
+	for i := range ps {
+		if ps[i].Key == name {
+			return ps[i].Value
+		}
+	}
+	return ""
+}
 
 type Router interface {
 	http.Handler
@@ -103,13 +129,22 @@ func Path(path string, handler http.Handler) Router {
 		pos++
 	}
 
+	// pool for parameters
+	num := strings.Count(p, ":") + strings.Count(p, "*")
+	pool := sync.Pool{New: func() interface{} {
+		return make(Parameters, num)
+	}}
+
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
-		if ctx := match(p, r.URL.Path, r.Context()); ctx != nil {
+		params := pool.Get().(Parameters)
+		if match(p, r.URL.Path, params, 0) {
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				handler.ServeHTTP(w, req.WithContext(ctx))
+				handler.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), Params, params)))
+				pool.Put(params)
 			})
 		}
+		pool.Put(params)
 		return nil
 	})
 }
@@ -121,24 +156,23 @@ func next(path string) int {
 	return len(path) // last path segment
 }
 
-func match(pat, url string, ctx context.Context) context.Context {
+func match(pat, url string, ps Parameters, n int) bool {
 	if len(pat) <= 1 || len(url) <= 1 {
-		if pat == url {
-			return ctx
-		}
-		return nil
+		return pat == url
 	}
 
 	i, j := next(pat), next(url)
 
 	switch {
 	case pat[1] == ':':
-		ctx = context.WithValue(ctx, pat[2:i], url[1:j])
+		ps[n].Key, ps[n].Value = pat[2:i], url[1:j]
+		n++
 	case pat[1] == '*':
-		return context.WithValue(ctx, pat[2:i], url[1:len(url)])
+		ps[n].Key, ps[n].Value = pat[2:i], url[1:len(url)]
+		return true
 	case pat[:i] != url[:j]:
-		return nil
+		return false
 	}
 
-	return match(pat[i:], url[j:], ctx)
+	return match(pat[i:], url[j:], ps, n)
 }
