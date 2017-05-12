@@ -149,9 +149,11 @@ func Route(path string, handler interface{}) Router {
 	}
 
 	// dynamic route matcher
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+	tsr := p[len(p)-1] == '/'
 	return RouterFunc(func(r *http.Request) http.Handler {
 		params := pool.Get().(*parameters)
-		if match(p, r.URL.Path, &params.all) {
+		if match(segments, r.URL.Path, &params.all, tsr) {
 			params.wrap(r)
 			return h
 		}
@@ -161,35 +163,36 @@ func Route(path string, handler interface{}) Router {
 	})
 }
 
-func next(path string) int {
-	if i := strings.IndexByte(path[1:], '/'); i != -1 {
-		return i + 1
+func match(segments []string, url string, ps *Params, tsr bool) bool {
+	for _, seg := range segments {
+		if len(url) > 0 && url[0] == '/' {
+			url = url[1:] // jump over slash
+		}
+		switch {
+		case seg[0] == ':':
+			n := len(*ps)
+			*ps = (*ps)[:n+1]
+			end := 0
+			for end < len(url) && url[end] != '/' {
+				end++
+			}
+
+			(*ps)[n].Key, (*ps)[n].Value = seg[1:], url[:end]
+			url = url[end:]
+		case seg[0] == '*':
+			n := len(*ps)
+			*ps = (*ps)[:n+1]
+			(*ps)[n].Key, (*ps)[n].Value = seg[1:], url
+			return true
+		case len(url) < len(seg):
+			return false
+		case url[:len(seg)] == seg:
+			url = url[len(seg):]
+		default:
+			return false
+		}
 	}
-	return len(path) // last path segment
-}
-
-func match(pat, url string, ps *Params) bool {
-	if len(pat) <= 1 || len(url) <= 1 {
-		return pat == url
-	}
-
-	i, j := next(pat), next(url)
-
-	switch {
-	case pat[1] == ':':
-		n := len(*ps)
-		*ps = (*ps)[:n+1]
-		(*ps)[n].Key, (*ps)[n].Value = pat[2:i], url[1:j]
-	case pat[1] == '*':
-		n := len(*ps)
-		*ps = (*ps)[:n+1]
-		(*ps)[n].Key, (*ps)[n].Value = pat[2:i], url[1:len(url)]
-		return true
-	case pat[:i] != url[:j]:
-		return false
-	}
-
-	return match(pat[i:], url[j:], ps)
+	return (!tsr && url == "") || (tsr && url == "/") // match trailing slash
 }
 
 // Files serves files from the given file system root.
