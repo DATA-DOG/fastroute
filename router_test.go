@@ -35,6 +35,7 @@ func BenchmarkHttpRouterParam(b *testing.B) {
 		b.Fatal(err)
 	}
 	w := &mockResponseWriter{}
+	router.ServeHTTP(w, req) // warmup
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -53,6 +54,7 @@ func BenchmarkRouterParam(b *testing.B) {
 		b.Fatal(err)
 	}
 	w := &mockResponseWriter{}
+	router.ServeHTTP(w, req) // warmup
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -79,6 +81,7 @@ func BenchmarkRouter5Routes(b *testing.B) {
 		b.Fatal(err)
 	}
 	w := &mockResponseWriter{}
+	router.ServeHTTP(w, req) // warmup
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -103,6 +106,7 @@ func BenchmarkHttpRouter5Routes(b *testing.B) {
 		b.Fatal(err)
 	}
 	w := &mockResponseWriter{}
+	router.ServeHTTP(w, req) // warmup
 
 	b.ReportAllocs()
 	b.ResetTimer()

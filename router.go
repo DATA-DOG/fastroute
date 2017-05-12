@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // Param is a single URL parameter, consisting of a key and a value.
@@ -57,11 +58,14 @@ func (rf RouterFunc) Match(r *http.Request) http.Handler {
 
 // ServeHTTP calls f(w, r).
 func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h := rf(r)
-	if nil == h {
-		h = http.NotFoundHandler() // override Router in order to customize
+	if h := rf(r); h != nil {
+		h.ServeHTTP(w, r)
+		if p := parameterized(r); p != nil {
+			p.reset() // salvage request parameters
+		}
+	} else {
+		http.NotFound(w, r)
 	}
-	h.ServeHTTP(w, r)
 }
 
 // New creates Router combined of given routes.
@@ -137,14 +141,22 @@ func Route(path string, handler interface{}) Router {
 		pos++
 	}
 
-	// dynamic route matcher
+	// pool for parameters
 	num := strings.Count(p, ":") + strings.Count(p, "*")
+	pool := new(sync.Pool)
+	pool.New = func() interface{} {
+		return &parameters{all: make(Params, 0, num), pool: pool}
+	}
+
+	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
-		params := make(Params, 0, num)
-		if match(p, r.URL.Path, &params) {
-			parameterized(r).set(params)
+		params := pool.Get().(*parameters)
+		if match(p, r.URL.Path, &params.all) {
+			params.wrap(r)
 			return h
 		}
+		params.all = params.all[0:0]
+		pool.Put(params)
 		return nil
 	})
 }
@@ -211,36 +223,35 @@ func Files(path string, root http.FileSystem) Router {
 // If there were no parameters and route is static
 // then nil is returned.
 func Parameters(req *http.Request) Params {
-	if req == nil {
-		return nil
-	}
 	return parameterized(req).get()
 }
 
 type paramReadCloser interface {
 	io.ReadCloser
 	get() Params
-	set(Params)
+	reset()
 }
 
 type parameters struct {
 	io.ReadCloser
-	all Params
+	all  Params
+	pool *sync.Pool
 }
 
 func (p *parameters) get() Params {
 	return p.all
 }
 
-func (p *parameters) set(params Params) {
-	p.all = params
+func (p *parameters) wrap(req *http.Request) {
+	p.ReadCloser = req.Body
+	req.Body = p
+}
+
+func (p *parameters) reset() {
+	p.all = p.all[0:0] // reset params
+	p.pool.Put(p)
 }
 
 func parameterized(req *http.Request) paramReadCloser {
-	p, ok := req.Body.(paramReadCloser)
-	if !ok {
-		p = &parameters{ReadCloser: req.Body}
-		req.Body = p
-	}
-	return p
+	return req.Body.(paramReadCloser)
 }
