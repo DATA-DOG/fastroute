@@ -69,8 +69,8 @@ func BenchmarkRouter5Routes(b *testing.B) {
 	}
 
 	router := New(
-		Route("/home/:id", handler),
-		Route("/base/path/:id", handler),
+		Route("/test/:id", handler),
+		Route("/puff/path/:id", handler),
 		Route("/home/user/:id", handler),
 		Route("/home/jey/:id/:cat", handler),
 		Route("/base/:id/user", handler),
@@ -163,6 +163,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		{"/a/c/c/", map[string]string{}, false},
 		{"/category/5/product/x/a/bc", map[string]string{"cid": "5", "rest": "x/a/bc"}, true},
 		{"/users/a/b/", map[string]string{"id": "a", "bid": "b"}, true},
+		{"/users/a/b/be/", map[string]string{}, false},
 	}
 
 	for i, c := range cases {

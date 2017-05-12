@@ -8,18 +8,27 @@ import (
 	"sync"
 )
 
-// Param is a single URL parameter, consisting of a key and a value.
-type Param struct {
-	Key, Value string
+// Parameters returns all path parameters for given
+// request.
+//
+// If there were no parameters and route is static
+// then empty parameter slice is returned.
+func Parameters(req *http.Request) Params {
+	if p := parameterized(req); p != nil {
+		return p.get()
+	}
+	return make(Params, 0)
 }
 
-// Params is a Param-slice, as returned by the router.
+// Params is a slice of key value pairs, as extracted from
+// the http.Request served by Router.
+//
 // The slice is ordered, the first URL parameter is also the first slice value.
 // It is therefore safe to read values by the index.
-type Params []Param
+type Params []struct{ Key, Value string }
 
 // ByName returns the value of the first Param which key matches the given name.
-// If no matching Param is found, an empty string is returned.
+// If no matching param is found, an empty string is returned.
 func (ps Params) ByName(name string) string {
 	for i := range ps {
 		if ps[i].Key == name {
@@ -121,25 +130,22 @@ func Route(path string, handler interface{}) Router {
 		})
 	}
 
-	// first ensure dynamic pattern is valid
-	var pos int
-	for {
-		if i := strings.IndexAny(p[pos:], ":*"); i == -1 {
-			break
-		} else {
-			pos += i
-		}
-
-		switch {
-		case p[pos-1] != '/':
+	// prepare and validate pattern segments to match
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+	for i := 0; i < len(segments); i++ {
+		seg := segments[i]
+		segments[i] = "/" + seg
+		if pos := strings.IndexAny(seg, ":*"); pos == -1 {
+			continue
+		} else if pos != 0 {
 			panic("special param matching signs, must follow after slash: " + p)
-		case p[pos] == '*' && strings.IndexByte(p[pos:], '/') != -1:
-			panic("match all sign, must be the last segment in pattern, without slash: " + p)
-		case strings.IndexByte(p[pos:], '/') == pos+1:
-			panic("parameter must be named: " + p)
+		} else if len(seg)-1 == pos {
+			panic("param must be named after sign: " + p)
+		} else if seg[0] == '*' && i+1 != len(segments) {
+			panic("match all, must be the last segment in pattern: " + p)
 		}
-		pos++
 	}
+	tsr := p[len(p)-1] == '/' // whether we need to match trailing slash
 
 	// pool for parameters
 	num := strings.Count(p, ":") + strings.Count(p, "*")
@@ -149,8 +155,6 @@ func Route(path string, handler interface{}) Router {
 	}
 
 	// dynamic route matcher
-	segments := strings.Split(strings.Trim(p, "/"), "/")
-	tsr := p[len(p)-1] == '/'
 	return RouterFunc(func(r *http.Request) http.Handler {
 		params := pool.Get().(*parameters)
 		if match(segments, r.URL.Path, &params.all, tsr) {
@@ -161,38 +165,6 @@ func Route(path string, handler interface{}) Router {
 		pool.Put(params)
 		return nil
 	})
-}
-
-func match(segments []string, url string, ps *Params, tsr bool) bool {
-	for _, seg := range segments {
-		if len(url) > 0 && url[0] == '/' {
-			url = url[1:] // jump over slash
-		}
-		switch {
-		case seg[0] == ':':
-			n := len(*ps)
-			*ps = (*ps)[:n+1]
-			end := 0
-			for end < len(url) && url[end] != '/' {
-				end++
-			}
-
-			(*ps)[n].Key, (*ps)[n].Value = seg[1:], url[:end]
-			url = url[end:]
-		case seg[0] == '*':
-			n := len(*ps)
-			*ps = (*ps)[:n+1]
-			(*ps)[n].Key, (*ps)[n].Value = seg[1:], url
-			return true
-		case len(url) < len(seg):
-			return false
-		case url[:len(seg)] == seg:
-			url = url[len(seg):]
-		default:
-			return false
-		}
-	}
-	return (!tsr && url == "") || (tsr && url == "/") // match trailing slash
 }
 
 // Files serves files from the given file system root.
@@ -206,30 +178,45 @@ func match(segments []string, url string, ps *Params, tsr bool) bool {
 // of the Router's NotFound handler.
 // To use the operating system's file system implementation,
 // use http.Dir:
-//     router.ServeFiles("/src/*filepath", http.Dir("/var/www"))
+//     router.ServeFiles("/src/*files", http.Dir("/var/www"))
 func Files(path string, root http.FileSystem) Router {
-	if len(path) < 10 || path[len(path)-10:] != "/*filepath" {
-		panic("path must end with /*filepath in path '" + path + "'")
+	if pos := strings.IndexByte(path, '*'); pos != -1 {
+		files := http.FileServer(root)
+		return Route(path, func(w http.ResponseWriter, r *http.Request) {
+			r.URL.Path = Parameters(r).ByName(path[pos+1:])
+			files.ServeHTTP(w, r)
+		})
 	}
-
-	files := http.FileServer(root)
-
-	return Route(path, func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = Parameters(r).ByName("filepath")
-		files.ServeHTTP(w, r)
-	})
+	panic("path must end with match all: * segment'" + path + "'")
 }
 
-// Parameters returns all path parameters for given
-// request.
-//
-// If there were no parameters and route is static
-// then empty parameter slice is returned.
-func Parameters(req *http.Request) Params {
-	if p := parameterized(req); p != nil {
-		return p.get()
+func match(segments []string, url string, ps *Params, tsr bool) bool {
+	for _, seg := range segments {
+		switch {
+		case seg[1] == ':': // match param
+			n := len(*ps)
+			*ps = (*ps)[:n+1]
+			end := 1
+			for end < len(url) && url[end] != '/' {
+				end++
+			}
+
+			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:end]
+			url = url[end:]
+		case seg[1] == '*': // match remaining
+			n := len(*ps)
+			*ps = (*ps)[:n+1]
+			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:]
+			return true
+		case len(url) < len(seg): // ensure length
+			return false
+		case url[:len(seg)] == seg: // match static
+			url = url[len(seg):]
+		default:
+			return false
+		}
 	}
-	return make(Params, 0)
+	return (!tsr && url == "") || (tsr && url == "/") // match trailing slash
 }
 
 // used to attach parameters to request
