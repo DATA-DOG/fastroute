@@ -221,11 +221,15 @@ func Files(path string, root http.FileSystem) Router {
 // request.
 //
 // If there were no parameters and route is static
-// then nil is returned.
+// then empty parameter slice is returned.
 func Parameters(req *http.Request) Params {
-	return parameterized(req).get()
+	if p := parameterized(req); p != nil {
+		return p.get()
+	}
+	return make(Params, 0)
 }
 
+// used to attach parameters to request
 type paramReadCloser interface {
 	io.ReadCloser
 	get() Params
@@ -248,7 +252,7 @@ func (p *parameters) wrap(req *http.Request) {
 }
 
 func (p *parameters) reset() {
-	p.all = p.all[0:0] // reset params
+	p.all = p.all[0:0]
 	p.pool.Put(p)
 }
 
