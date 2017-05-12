@@ -2,24 +2,45 @@ package router
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
-	defer func() {
-		if err := recover(); err != nil {
-			actual := fmt.Sprintf("%s", err)
-			if actual != expectedMessage {
-				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
-			}
-		}
-	}()
+func TestShouldFallbackToNotFoundHandler(t *testing.T) {
+	router := Route("/xx", func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("not expected invocation")
+	})
+	req, err := http.NewRequest("GET", "/any", nil)
+	w := httptest.NewRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	Route(pattern, h)
+	router.ServeHTTP(w, req)
 
-	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
+	if w.Code != 404 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
+}
+
+func TestEmptyRequestParameters(t *testing.T) {
+	req, err := http.NewRequest("GET", "/any", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	params := Parameters(req)
+	if len(params) > 0 {
+		t.Fatalf("expected empty params, but got: %d", len(params))
+	}
+
+	if act := params.ByName("unknown"); act != "" {
+		t.Fatalf("expected empty value for unknown param, but got: %s", act)
+	}
 }
 
 func TestRoutePatternValidation(t *testing.T) {
@@ -73,6 +94,51 @@ func TestRoutePatternValidation(t *testing.T) {
 	)
 }
 
+func TestFileServer(t *testing.T) {
+	dir, err := ioutil.TempDir("", "router")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	tmpfn := filepath.Join(dir, "tmpfile")
+	if err := ioutil.WriteFile(tmpfn, []byte("hello world"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	router := Files("/public/*files", http.Dir(dir))
+
+	req, err := http.NewRequest("GET", "/public/tmpfile", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
+
+	if w.Body.String() != "hello world" {
+		t.Fatalf("unexpected response body: %s", w.Body.String())
+	}
+
+	pattern := "/public/files"
+	expectedMessage := "path must end with match all: * segment'/public/files'"
+	defer func() {
+		if err := recover(); err != nil {
+			actual := fmt.Sprintf("%s", err)
+			if actual != expectedMessage {
+				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
+			}
+		}
+	}()
+
+	Files(pattern, http.Dir(dir))
+
+	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
+}
+
 func TestStaticRouteMatcher(t *testing.T) {
 	cases := map[string]bool{
 		"/users/hello":      true,
@@ -83,7 +149,7 @@ func TestStaticRouteMatcher(t *testing.T) {
 	}
 	router := New(
 		Route("/users/hello/bin/", http.NotFoundHandler()),
-		Route("/users/hello", http.NotFoundHandler()),
+		Route("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
 	)
 
 	for p, b := range cases {
@@ -152,4 +218,19 @@ func TestDynamicRouteMatcher(t *testing.T) {
 			}
 		}
 	}
+}
+
+func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
+	defer func() {
+		if err := recover(); err != nil {
+			actual := fmt.Sprintf("%s", err)
+			if actual != expectedMessage {
+				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
+			}
+		}
+	}()
+
+	Route(pattern, h)
+
+	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
 }

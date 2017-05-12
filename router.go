@@ -112,8 +112,6 @@ func Route(path string, handler interface{}) Router {
 	switch t := handler.(type) {
 	case http.HandlerFunc:
 		h = t
-	case http.Handler:
-		h = t
 	case func(http.ResponseWriter, *http.Request):
 		h = http.HandlerFunc(t)
 	default:
@@ -249,5 +247,8 @@ func (p *parameters) reset() {
 }
 
 func parameterized(req *http.Request) paramReadCloser {
-	return req.Body.(paramReadCloser)
+	if p, ok := req.Body.(paramReadCloser); ok {
+		return p
+	}
+	return nil
 }
