@@ -143,9 +143,11 @@ func Route(path string, handler interface{}) Router {
 			panic("param must be named after sign: " + p)
 		} else if seg[0] == '*' && i+1 != len(segments) {
 			panic("match all, must be the last segment in pattern: " + p)
+		} else if strings.IndexAny(seg[1:], ":*") != -1 {
+			panic("only one param per segment: " + p)
 		}
 	}
-	tsr := p[len(p)-1] == '/' // whether we need to match trailing slash
+	ts := p[len(p)-1] == '/' // whether we need to match trailing slash
 
 	// pool for parameters
 	num := strings.Count(p, ":") + strings.Count(p, "*")
@@ -157,7 +159,7 @@ func Route(path string, handler interface{}) Router {
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
 		params := pool.Get().(*parameters)
-		if match(segments, r.URL.Path, &params.all, tsr) {
+		if match(segments, r.URL.Path, &params.all, ts) {
 			params.wrap(r)
 			return h
 		}
@@ -190,7 +192,7 @@ func Files(path string, root http.FileSystem) Router {
 	panic("path must end with match all: * segment'" + path + "'")
 }
 
-func match(segments []string, url string, ps *Params, tsr bool) bool {
+func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, seg := range segments {
 		switch {
 		case seg[1] == ':': // match param
@@ -216,7 +218,7 @@ func match(segments []string, url string, ps *Params, tsr bool) bool {
 			return false
 		}
 	}
-	return (!tsr && url == "") || (tsr && url == "/") // match trailing slash
+	return (!ts && url == "") || (ts && url == "/") // match trailing slash
 }
 
 // used to attach parameters to request

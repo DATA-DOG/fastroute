@@ -1,127 +1,90 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/julienschmidt/httprouter"
 )
 
-type mockResponseWriter struct{}
+func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
+	defer func() {
+		if err := recover(); err != nil {
+			actual := fmt.Sprintf("%s", err)
+			if actual != expectedMessage {
+				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
+			}
+		}
+	}()
 
-func (m *mockResponseWriter) Header() (h http.Header) {
-	return http.Header{}
+	Route(pattern, h)
+
+	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
 }
 
-func (m *mockResponseWriter) Write(p []byte) (n int, err error) {
-	return len(p), nil
-}
-
-func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
-	return len(s), nil
-}
-
-func (m *mockResponseWriter) WriteHeader(int) {}
-
-func BenchmarkHttpRouterParam(b *testing.B) {
-	router := httprouter.New()
-	router.GET("/v1/users/:id", func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
-		w.Write([]byte(ps.ByName("id")))
-	})
-
-	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkRouterParam(b *testing.B) {
-	router := Route("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(Parameters(r).ByName("id")))
-	})
-
-	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkRouter5Routes(b *testing.B) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(Parameters(r).ByName("id")))
-	}
-
-	router := New(
-		Route("/test/:id", handler),
-		Route("/puff/path/:id", handler),
-		Route("/home/user/:id", handler),
-		Route("/home/jey/:id/:cat", handler),
-		Route("/base/:id/user", handler),
+func TestRoutePatternValidation(t *testing.T) {
+	recoverOrFail(
+		"/path/*",
+		"param must be named after sign: /path/*",
+		http.NotFoundHandler(),
+		t,
 	)
 
-	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
+	recoverOrFail(
+		"/path/:/a",
+		"param must be named after sign: /path/:/a",
+		http.NotFoundHandler(),
+		t,
+	)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
-}
+	recoverOrFail(
+		"/pa:/a",
+		"special param matching signs, must follow after slash: /pa:/a",
+		http.NotFoundHandler(),
+		t,
+	)
 
-func BenchmarkHttpRouter5Routes(b *testing.B) {
-	router := httprouter.New()
-	handler := func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
-		w.Write([]byte(ps.ByName("id")))
-	}
-	router.GET("/test/:id", handler)
-	router.GET("/puff/path/:id", handler)
-	router.GET("/home/user/:id", handler)
-	router.GET("/home/jey/:id/:cat", handler)
-	router.GET("/base/:id/user", handler)
+	recoverOrFail(
+		"/a/b*",
+		"special param matching signs, must follow after slash: /a/b*",
+		http.NotFoundHandler(),
+		t,
+	)
 
-	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
+	recoverOrFail(
+		"/:user:/id",
+		"only one param per segment: /:user:/id",
+		http.NotFoundHandler(),
+		t,
+	)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
+	recoverOrFail(
+		"/a/b*",
+		"not a handler given: string - MyHandler",
+		"MyHandler",
+		t,
+	)
+
+	recoverOrFail(
+		"/path/*all/more",
+		"match all, must be the last segment in pattern: /path/*all/more",
+		http.NotFoundHandler(),
+		t,
+	)
 }
 
 func TestStaticRouteMatcher(t *testing.T) {
 	cases := map[string]bool{
-		"/users/hello":  true,
-		"/user/hello":   false,
-		"/users/hello/": false,
+		"/users/hello":      true,
+		"/user/hello":       false,
+		"/users/hello/":     false,
+		"/users/hello/bin":  false,
+		"/users/hello/bin/": true,
 	}
-	router := Route("/users/hello", http.NotFoundHandler())
+	router := New(
+		Route("/users/hello/bin/", http.NotFoundHandler()),
+		Route("/users/hello", http.NotFoundHandler()),
+	)
 
 	for p, b := range cases {
 		req, err := http.NewRequest("GET", p, nil)
@@ -142,13 +105,11 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request = r
 	})
-	routes := []Router{
+	router := New(
 		Route("/a/:b/c", handler),
 		Route("/category/:cid/product/*rest", handler),
 		Route("/users/:id/:bid/", handler),
-	}
-
-	router := New(routes...)
+	)
 
 	cases := []struct {
 		path   string
