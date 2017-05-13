@@ -1,12 +1,9 @@
-package router
+package fastroute
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -94,51 +91,6 @@ func TestRoutePatternValidation(t *testing.T) {
 	)
 }
 
-func TestFileServer(t *testing.T) {
-	dir, err := ioutil.TempDir("", "router")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	tmpfn := filepath.Join(dir, "tmpfile")
-	if err := ioutil.WriteFile(tmpfn, []byte("hello world"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	router := Files("/public/*files", http.Dir(dir))
-
-	req, err := http.NewRequest("GET", "/public/tmpfile", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("unexpected response code: %d", w.Code)
-	}
-
-	if w.Body.String() != "hello world" {
-		t.Fatalf("unexpected response body: %s", w.Body.String())
-	}
-
-	pattern := "/public/files"
-	expectedMessage := "path must end with match all: * segment'/public/files'"
-	defer func() {
-		if err := recover(); err != nil {
-			actual := fmt.Sprintf("%s", err)
-			if actual != expectedMessage {
-				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
-			}
-		}
-	}()
-
-	Files(pattern, http.Dir(dir))
-
-	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
-}
-
 func TestStaticRouteMatcher(t *testing.T) {
 	cases := map[string]bool{
 		"/users/hello":      true,
@@ -175,6 +127,8 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		Route("/a/:b/c", handler),
 		Route("/category/:cid/product/*rest", handler),
 		Route("/users/:id/:bid/", handler),
+		Route("/applications/:client_id/tokens", handler),
+		Route("/repos/:owner/:repo/issues/:number/labels/:name", handler),
 	)
 
 	cases := []struct {
@@ -191,6 +145,8 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		{"/category/5/product/x/a/bc", map[string]string{"cid": "5", "rest": "x/a/bc"}, true},
 		{"/users/a/b/", map[string]string{"id": "a", "bid": "b"}, true},
 		{"/users/a/b/be/", map[string]string{}, false},
+		{"/applications/:client_id/tokens", map[string]string{"client_id": ":client_id"}, true},
+		{"/repos/:owner/:repo/issues/:number/labels", map[string]string{}, false},
 	}
 
 	for i, c := range cases {

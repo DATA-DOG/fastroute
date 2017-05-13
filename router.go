@@ -1,4 +1,4 @@
-package router
+package fastroute
 
 import (
 	"fmt"
@@ -161,43 +161,22 @@ func Route(path string, handler interface{}) Router {
 			params.wrap(r)
 			return h
 		}
-		params.all = params.all[0:0]
-		pool.Put(params)
+		params.reset()
 		return nil
 	})
 }
 
-// Files serves files from the given file system root.
-// The path must end with "/*filepath", files are then served from the local
-// path /defined/root/dir/*filepath.
-//
-// For example if root is "/etc" and *filepath is "passwd", the local file
-// "/etc/passwd" would be served.
-//
-// Internally a http.FileServer is used, therefore http.NotFound is used instead
-// of the Router's NotFound handler.
-// To use the operating system's file system implementation,
-// use http.Dir:
-//     router.ServeFiles("/src/*files", http.Dir("/var/www"))
-func Files(path string, root http.FileSystem) Router {
-	if pos := strings.IndexByte(path, '*'); pos != -1 {
-		files := http.FileServer(root)
-		return Route(path, func(w http.ResponseWriter, r *http.Request) {
-			r.URL.Path = Parameters(r).ByName(path[pos+1:])
-			files.ServeHTTP(w, r)
-		})
-	}
-	panic("path must end with match all: * segment'" + path + "'")
-}
-
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, seg := range segments {
+		lu := len(url)
 		switch {
+		case lu == 0:
+			return false
 		case seg[1] == ':': // match param
 			n := len(*ps)
 			*ps = (*ps)[:n+1]
 			end := 1
-			for end < len(url) && url[end] != '/' {
+			for end < lu && url[end] != '/' {
 				end++
 			}
 
@@ -208,7 +187,7 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 			*ps = (*ps)[:n+1]
 			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:]
 			return true
-		case len(url) < len(seg): // ensure length
+		case lu < len(seg): // ensure length
 			return false
 		case url[:len(seg)] == seg: // match static
 			url = url[len(seg):]
