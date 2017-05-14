@@ -39,7 +39,7 @@ In overall, it is **not all in one** router, it is the same **http.Handler**
 with do it yourself style, but with free **0 allocations** path pattern matching.
 Feel free to just copy it and adapt to your needs.
 
-This deserves a quote from **Rob Pike**:
+This deserves a [quote](http://users.ece.utexas.edu/~adnan/pike.html) from **Rob Pike**:
 
 > Fancy algorithms are slow when n is small, and n is usually small. Fancy
 > algorithms have big constants. Until you know that n is frequently going
@@ -71,6 +71,8 @@ By default this router does not provide:
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).
+Note, it uses [mux](https://github.com/DATA-DOG/fastroute/tree/mux/mux/mux.go) package,
+which is just an example made for this benchmark.
 
 Benchmark type            | repeats   | cpu time op    | mem op      | mem allocs op    |
 --------------------------|----------:|---------------:|------------:|-----------------:|
@@ -155,7 +157,7 @@ GorillaMux_StaticAll      |    1000   | 1536755 ns/op  | 115648 B/op |   1578 al
 HttpRouter_StaticAll      |  200000   |   10824 ns/op  |      0 B/op |      0 allocs/op |
 Pat_StaticAll             |    1000   | 1597577 ns/op  | 533904 B/op |  11123 allocs/op |
 
-We can see that **FastRoute** outperforms routers in most of the cases. In general it always boils
+We can see that **FastRoute** outperforms routers in some of the cases. In general it always boils
 down to targeted case implementation.
 
 **FastRoute** was easily adapted for this benchmark. Where static routes are served, nothing

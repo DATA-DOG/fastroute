@@ -1,3 +1,69 @@
+// Package fastroute is http.Handler based high performance HTTP request router.
+//
+// A trivial example is:
+//
+//  package main
+//
+//  import (
+//      "fmt"
+//      "log"
+//      "net/http"
+//      "github.com/DATA-DOG/fastroute"
+//  )
+//
+//  func Index(w http.ResponseWriter, r *http.Request) {
+//      fmt.Fprint(w, "Welcome!\n")
+//  }
+//
+//  func Hello(w http.ResponseWriter, r *http.Request) {
+//      fmt.Fprintf(w, "hello, %s!\n", fastroute.Parameters(r).ByName("name"))
+//  }
+//
+//  func main() {
+//      log.Fatal(http.ListenAndServe(":8080", fastroute.New(
+//          fastroute.Route("/", Index),
+//          fastroute.Route("/hello/:name", Hello),
+//      )))
+//  }
+//
+// The router can be composed of fastroute.Router interface, which shares
+// the same htto.Handler interface. This package provides only this orthogonal
+// interface as a building block.
+//
+// It also provides path pattern matching in order to construct dynamic routes
+// having path Params available from http.Request at zero allocation cost.
+// You can extract path parameters from request this way:
+//
+//  params := fastroute.Parameters(request) // request - *http.Request
+//  fmt.Println(params.ByName("id"))
+//
+// The registered path, against which the router matches incoming requests, can
+// contain two types of parameters:
+//  Syntax    Type
+//  :name     named parameter
+//  *name     catch-all parameter
+//
+// Named parameters are dynamic path segments. They match anything until the
+// next '/' or the path end:
+//  Path: /blog/:category/:post
+//
+//  Requests:
+//   /blog/go/request-routers            match: category="go", post="request-routers"
+//   /blog/go/request-routers/           no match, but the router would redirect
+//   /blog/go/                           no match
+//   /blog/go/request-routers/comments   no match
+//
+// Catch-all parameters match anything until the path end, including the
+// directory index (the '/' before the catch-all). Since they match anything
+// until the end, catch-all parameters must always be the final path element.
+//  Path: /files/*filepath
+//
+//  Requests:
+//   /files/                             match: filepath="/"
+//   /files/LICENSE                      match: filepath="/LICENSE"
+//   /files/templates/article.html       match: filepath="/templates/article.html"
+//   /files                              no match, but the router would redirect
+//
 package fastroute
 
 import (
@@ -108,6 +174,12 @@ func New(routes ...Router) Router {
 //  http.HandlerFunc
 //  func(http.ResponseWriter, *http.Request)
 //
+// If the route path is static (does not contain parameters)
+// then it will be matched as is to an URL.
+//
+// Otherwise if path contains any parameters, it then
+// will load parameters from sync.Pool which scales based
+// on load you have. Attempts to match route.
 func Route(path string, handler interface{}) Router {
 	p := "/" + strings.TrimLeft(path, "/")
 
