@@ -69,9 +69,6 @@ func (rf RouterFunc) Match(r *http.Request) http.Handler {
 func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h := rf(r); h != nil {
 		h.ServeHTTP(w, r)
-		if p := parameterized(r); p != nil {
-			p.reset() // salvage request parameters
-		}
 	} else {
 		http.NotFound(w, r)
 	}
@@ -154,12 +151,20 @@ func Route(path string, handler interface{}) Router {
 		return &parameters{all: make(Params, 0, num), pool: pool}
 	}
 
+	// extend handler in order to salvage parameters
+	handle := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+		if p := parameterized(r); p != nil {
+			p.reset() // salvage request parameters
+		}
+	})
+
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
 		params := pool.Get().(*parameters)
 		if match(segments, r.URL.Path, &params.all, ts) {
 			params.wrap(r)
-			return h
+			return handle
 		}
 		params.reset()
 		return nil

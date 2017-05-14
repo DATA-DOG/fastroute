@@ -119,10 +119,7 @@ func TestStaticRouteMatcher(t *testing.T) {
 }
 
 func TestDynamicRouteMatcher(t *testing.T) {
-	var request *http.Request
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		request = r
-	})
+	handler := http.NotFoundHandler()
 	router := New(
 		Route("/a/:b/c", handler),
 		Route("/category/:cid/product/*rest", handler),
@@ -165,14 +162,16 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		if h == nil {
 			continue
 		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, req)
+
 		for key, val := range c.params {
 			act := Parameters(req).ByName(key)
 			if act != val {
 				t.Fatalf("param: %s expected %s does not match to: %s, case: %d", key, val, act, i)
 			}
 		}
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
 	}
 }
 
