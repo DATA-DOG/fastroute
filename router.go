@@ -15,7 +15,7 @@ import (
 // then empty parameter slice is returned.
 func Parameters(req *http.Request) Params {
 	if p := parameterized(req); p != nil {
-		return p.get()
+		return p.params
 	}
 	return make(Params, 0)
 }
@@ -51,6 +51,12 @@ type Router interface {
 	// cannot be matched. At the top Router
 	// nil could indicate that NotFound handler
 	// can be applied.
+	//
+	// Note, if the router is matched and it has
+	// path parameters - then it must be served
+	// in order to release allocated parameters
+	// back to the pool. Otherwise you might
+	// introduce memory leaks
 	Match(*http.Request) http.Handler
 }
 
@@ -146,27 +152,28 @@ func Route(path string, handler interface{}) Router {
 
 	// pool for parameters
 	num := strings.Count(p, ":") + strings.Count(p, "*")
-	pool := new(sync.Pool)
-	pool.New = func() interface{} {
-		return &parameters{all: make(Params, 0, num), pool: pool}
-	}
+	pool := sync.Pool{New: func() interface{} {
+		return &parameters{params: make(Params, 0, num)}
+	}}
 
 	// extend handler in order to salvage parameters
 	handle := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 		if p := parameterized(r); p != nil {
-			p.reset() // salvage request parameters
+			p.params = p.params[0:0]
+			pool.Put(p)
 		}
 	})
 
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
-		params := pool.Get().(*parameters)
-		if match(segments, r.URL.Path, &params.all, ts) {
-			params.wrap(r)
+		p := pool.Get().(*parameters)
+		if match(segments, r.URL.Path, &p.params, ts) {
+			p.wrap(r)
 			return handle
 		}
-		params.reset()
+		p.params = p.params[0:0]
+		pool.Put(p)
 		return nil
 	})
 }
@@ -203,21 +210,9 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 	return (!ts && url == "") || (ts && url == "/") // match trailing slash
 }
 
-// used to attach parameters to request
-type paramReadCloser interface {
-	io.ReadCloser
-	get() Params
-	reset()
-}
-
 type parameters struct {
 	io.ReadCloser
-	all  Params
-	pool *sync.Pool
-}
-
-func (p *parameters) get() Params {
-	return p.all
+	params Params
 }
 
 func (p *parameters) wrap(req *http.Request) {
@@ -225,13 +220,8 @@ func (p *parameters) wrap(req *http.Request) {
 	req.Body = p
 }
 
-func (p *parameters) reset() {
-	p.all = p.all[0:0]
-	p.pool.Put(p)
-}
-
-func parameterized(req *http.Request) paramReadCloser {
-	if p, ok := req.Body.(paramReadCloser); ok {
+func parameterized(req *http.Request) *parameters {
+	if p, ok := req.Body.(*parameters); ok {
 		return p
 	}
 	return nil
