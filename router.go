@@ -1,4 +1,4 @@
-// Package fastroute is http.Handler based high performance HTTP request router.
+// Package fastroute is standard http.Handler based high performance HTTP request router.
 //
 // A trivial example is:
 //
@@ -31,7 +31,7 @@
 // interface as a building block.
 //
 // It also provides path pattern matching in order to construct dynamic routes
-// having path Params available from http.Request at zero allocation cost.
+// having named Params available from http.Request at zero allocation cost.
 // You can extract path parameters from request this way:
 //
 //  params := fastroute.Parameters(request) // request - *http.Request
@@ -49,7 +49,7 @@
 //
 //  Requests:
 //   /blog/go/request-routers            match: category="go", post="request-routers"
-//   /blog/go/request-routers/           no match, but the router would redirect
+//   /blog/go/request-routers/           no match
 //   /blog/go/                           no match
 //   /blog/go/request-routers/comments   no match
 //
@@ -62,7 +62,7 @@
 //   /files/                             match: filepath="/"
 //   /files/LICENSE                      match: filepath="/LICENSE"
 //   /files/templates/article.html       match: filepath="/templates/article.html"
-//   /files                              no match, but the router would redirect
+//   /files                              no match
 //
 package fastroute
 
@@ -169,17 +169,18 @@ func New(routes ...Router) Router {
 // to match given path to handler.
 //
 // Handler is a standard http.Handler which
-// may be in the following formats:
+// may be accepted in the following formats:
 //  http.Handler
 //  http.HandlerFunc
 //  func(http.ResponseWriter, *http.Request)
 //
-// If the route path is static (does not contain parameters)
-// then it will be matched as is to an URL.
+// Static paths will be simply matched to
+// the request URL. While paths having named
+// parameters will be matched by segment. And
+// bind matched named parameters to http.Request.
 //
-// Otherwise if path contains any parameters, it then
-// will load parameters from sync.Pool which scales based
-// on load you have. Attempts to match route.
+// When dynamic path is matched, it must be served
+// in order to salvage allocated named parameters.
 func Route(path string, handler interface{}) Router {
 	p := "/" + strings.TrimLeft(path, "/")
 
@@ -269,7 +270,7 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 		case seg[1] == '*': // match remaining
 			n := len(*ps)
 			*ps = (*ps)[:n+1]
-			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:]
+			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url
 			return true
 		case lu < len(seg): // ensure length
 			return false

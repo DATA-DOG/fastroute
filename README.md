@@ -68,6 +68,142 @@ By default this router does not provide:
 4. All the panic recovery, not found, method not found, options or other middleware.
    That is up to your imagination, if such features are needed at all.
 
+## Guides
+
+Here are some common usage guidelines:
+
+### Combining static routes
+
+The best and fastest way to match static routes - is to have a **map** of path -> handler pairs.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/DATA-DOG/fastroute"
+)
+
+func main() {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintln(w, req.URL.Path, fastroute.Parameters(req))
+	})
+
+	static := map[string]http.Handler{
+		"/status":      handler,
+		"/users/roles": handler,
+	}
+
+	staticRoutes := fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		return static[req.URL.Path]
+	})
+
+	dynamicRoutes := fastroute.New(
+		fastroute.Route("/users/:id", handler),
+		fastroute.Route("/users/:id/roles", handler),
+	)
+
+	http.ListenAndServe(":8080", fastroute.New(staticRoutes, dynamicRoutes))
+}
+```
+
+### Custom Not Found handler
+
+Since **fastroute.Router** returns **nil** if request is not matched, we can easily
+extend it and create middleware for it at as many levels as we like.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/DATA-DOG/fastroute"
+)
+
+func main() {
+	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
+	})
+
+	router := fastroute.Route("/users/:id", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintln(w, "user:", fastroute.Parameters(req).ByName("id"))
+	})
+
+	http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		if h := router.Match(req); h != nil {
+			return h
+		}
+		return notFoundHandler
+	}))
+}
+```
+
+This way, it is possible to extend **fastroute.Router** with various middleware, including:
+- Method not found handler.
+- Fixed path or trailing slash redirects. Based on your chosen route layout.
+- Options or **CORS**.
+- It is also a good place to chain **http.Handler** with some middleware, like request
+timing, logging and so on..
+
+### Trailing slash or fixed path redirects
+
+In cases when your API faces public, it might be a good idea to redirect with corrected
+request URL.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/DATA-DOG/fastroute"
+)
+
+func main() {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintln(w, req.URL.Path, fastroute.Parameters(req))
+	})
+
+	// lets say our API strategy is to have all paths
+	// lowercased and a trailing slash
+	routes := fastroute.New(
+		fastroute.Route("/status/", handler),
+		fastroute.Route("/users/:id/", handler),
+		fastroute.Route("/users/:id/roles/", handler),
+	)
+
+	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		if h := routes.Match(req); h != nil {
+			return h // has matched, no need for fixing
+		}
+
+		p := req.URL.Path
+		if p[len(p)-1] != '/' {
+			p += "/" // had no trailing slash
+		}
+
+		// lets check if all static letters are lowercase
+
+		return redirect(p)
+	})
+
+	http.ListenAndServe(":8080", router)
+}
+
+func redirect(fixedPath string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.URL.Path = fixedPath
+		http.Redirect(w, req, req.URL.String(), http.StatusPermanentRedirect)
+	})
+}
+```
+
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).

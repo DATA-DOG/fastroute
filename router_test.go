@@ -126,6 +126,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		Route("/users/:id/:bid/", handler),
 		Route("/applications/:client_id/tokens", handler),
 		Route("/repos/:owner/:repo/issues/:number/labels/:name", handler),
+		Route("/files/*filepath", handler),
 	)
 
 	cases := []struct {
@@ -139,11 +140,15 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		{"/a/c/c", map[string]string{"b": "c"}, true},
 		{"/a/c/b", map[string]string{}, false},
 		{"/a/c/c/", map[string]string{}, false},
-		{"/category/5/product/x/a/bc", map[string]string{"cid": "5", "rest": "x/a/bc"}, true},
+		{"/category/5/product/x/a/bc", map[string]string{"cid": "5", "rest": "/x/a/bc"}, true},
 		{"/users/a/b/", map[string]string{"id": "a", "bid": "b"}, true},
 		{"/users/a/b/be/", map[string]string{}, false},
 		{"/applications/:client_id/tokens", map[string]string{"client_id": ":client_id"}, true},
 		{"/repos/:owner/:repo/issues/:number/labels", map[string]string{}, false},
+		{"/files/LICENSE", map[string]string{"filepath": "/LICENSE"}, true},
+		{"/files/", map[string]string{"filepath": "/"}, true},
+		{"/files", map[string]string{}, false},
+		{"/files/css/style.css", map[string]string{"filepath": "/css/style.css"}, true},
 	}
 
 	for i, c := range cases {
