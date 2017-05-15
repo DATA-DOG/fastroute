@@ -225,16 +225,16 @@ func Route(path string, handler interface{}) Router {
 
 	// pool for parameters
 	num := strings.Count(p, ":") + strings.Count(p, "*")
-	pool := sync.Pool{New: func() interface{} {
-		return &parameters{params: make(Params, 0, num)}
-	}}
+	pool := sync.Pool{}
+	pool.New = func() interface{} {
+		return &parameters{params: make(Params, 0, num), pool: &pool}
+	}
 
 	// extend handler in order to salvage parameters
 	handle := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 		if p := parameterized(r); p != nil {
-			p.params = p.params[0:0]
-			pool.Put(p)
+			p.reset(r)
 		}
 	})
 
@@ -245,10 +245,30 @@ func Route(path string, handler interface{}) Router {
 			p.wrap(r)
 			return handle
 		}
-		p.params = p.params[0:0]
-		pool.Put(p)
+		p.reset(r)
 		return nil
 	})
+}
+
+// Handles tries to match given request against the
+// router. It also salvages the request parameters.
+// Indicates whether router matches given request and
+// gives matched named parameters.
+//
+// So if there is a need to test request without
+// actually serving it, then use this method instead
+// of Router.Match otherwise there will be parameter leaks.
+func Handles(router Router, req *http.Request) (bool, Params) {
+	params := make(Params, 0)
+	if h := router.Match(req); h != nil {
+		if p := parameterized(req); p != nil {
+			params = make(Params, len(p.params))
+			copy(params, p.params)
+			p.reset(req)
+		}
+		return true, params
+	}
+	return false, params
 }
 
 func match(segments []string, url string, ps *Params, ts bool) bool {
@@ -286,11 +306,18 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 type parameters struct {
 	io.ReadCloser
 	params Params
+	pool   *sync.Pool
 }
 
 func (p *parameters) wrap(req *http.Request) {
 	p.ReadCloser = req.Body
 	req.Body = p
+}
+
+func (p *parameters) reset(req *http.Request) {
+	p.params = p.params[0:0]
+	p.pool.Put(p)
+	req.Body = p.ReadCloser
 }
 
 func parameterized(req *http.Request) *parameters {

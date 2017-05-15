@@ -161,6 +161,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/DATA-DOG/fastroute"
 )
@@ -188,9 +189,16 @@ func main() {
 			p += "/" // had no trailing slash
 		}
 
-		// lets check if all static letters are lowercase
+		// clone request for testing
+		r := new(http.Request)
+		*r = *req
+		r.URL.Path = strings.ToLower(p) // maybe captain CAPS LOCK?
 
-		return redirect(p)
+		if matched, _ := fastroute.Handles(routes, r); matched {
+			return redirect(r.URL.Path) // fixed trailing slash
+		}
+
+		return nil
 	})
 
 	http.ListenAndServe(":8080", router)
