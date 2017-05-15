@@ -16,6 +16,20 @@ type route struct {
 
 // Mux request router
 type Mux struct {
+	// If enabled, all paths must end with a trailing slash
+	// and when route is registered, it will append a slash
+	// or redirect if it is missing.
+	//
+	// If disabled, it will remove trailing slash when path
+	// is registered and redirect if matched against path
+	// ending with trailing slash.
+	ForceTrailingSlash bool
+	RedirectFixedPath  bool
+	AutoOptionsReply   bool
+
+	MethodNotAllowed http.Handler
+	NotFound         http.Handler
+
 	routes map[string][]*route
 }
 
@@ -38,6 +52,17 @@ func (m *Mux) Method(method, path string, handler interface{}) {
 		h = http.HandlerFunc(t)
 	default:
 		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
+	}
+
+	// ensure trailing slash as configured
+	if len(path) > 1 {
+		ts := path[len(path)-1] == '/'
+		if m.ForceTrailingSlash && !ts {
+			path += "/"
+		}
+		if !m.ForceTrailingSlash && ts {
+			path = path[:len(path)-1]
+		}
 	}
 
 	method = strings.ToUpper(method)
@@ -72,13 +97,62 @@ func (m *Mux) Files(path string, root http.FileSystem) {
 func (m *Mux) Server() fastroute.Router {
 	routes := m.optimize()
 
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
+	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		if router := routes[req.Method]; router != nil {
 			if h := router.Match(req); h != nil {
 				return h
 			}
 		}
+
 		return nil
+	})
+
+	return router
+}
+
+func (m *Mux) redirectTrailingSlash(req *http.Request) http.Handler {
+	p := req.URL.Path
+	if p == "/" {
+		return nil // nothing to fix
+	}
+
+	ts := p[len(p)-1] == '/'
+	if m.ForceTrailingSlash && !ts {
+		return redirect(p + "/")
+	}
+
+	if !m.ForceTrailingSlash && ts {
+		return redirect(p[:len(p)-1])
+	}
+
+	return nil
+}
+
+func (m *Mux) redirectFixedPath(req *http.Request) http.Handler {
+	p := req.URL.Path
+	if p == "/" {
+		return nil // nothing to fix
+	}
+
+	req2 := new(http.Request)
+	*req2 = *req
+
+	ts := p[len(p)-1] == '/'
+	if m.ForceTrailingSlash && !ts {
+		return redirect(p + "/")
+	}
+
+	if !m.ForceTrailingSlash && ts {
+		return redirect(p[:len(p)-1])
+	}
+
+	return nil
+}
+
+func redirect(fixedPath string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.URL.Path = fixedPath
+		http.Redirect(w, req, req.URL.String(), http.StatusPermanentRedirect)
 	})
 }
 
