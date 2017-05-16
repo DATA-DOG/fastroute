@@ -4,7 +4,7 @@
 
 # FastRoute
 
-Insanely **fast** and **robust** http router for golang. Only **200**
+Insanely **fast** and **robust** http router for golang. Only **~200**
 lines of code. Uses standard **http.Handler** and has no limitations
 to path matching compared to routers derived from **HttpRouter**.
 
@@ -71,6 +71,8 @@ By default this router does not provide:
 ## Guides
 
 Here are some common usage guidelines:
+You may also have a look at [mux](https://github.com/DATA-DOG/fastroute/tree/master/mux/mux.go) package,
+which is an example of full featured router implementation using **fastroute**
 
 ### Combining static routes
 
@@ -150,7 +152,7 @@ This way, it is possible to extend **fastroute.Router** with various middleware,
 - It is also a good place to chain **http.Handler** with some middleware, like request
 timing, logging and so on..
 
-### Trailing slash or fixed path redirects
+### Trailing slash redirects and case insensitive match
 
 In cases when your API faces public, it might be a good idea to redirect with corrected
 request URL.
@@ -172,7 +174,7 @@ func main() {
 	})
 
 	// lets say our API strategy is to have all paths
-	// lowercased and a trailing slash
+	// lowercased with a trailing slash
 	routes := fastroute.New(
 		fastroute.Route("/status/", handler),
 		fastroute.Route("/users/:id/", handler),
@@ -192,15 +194,17 @@ func main() {
 		// clone request for testing
 		r := new(http.Request)
 		*r = *req
-		r.URL.Path = strings.ToLower(p) // maybe captain CAPS LOCK?
+		r.URL.Path = p
 
-		if matched, _ := fastroute.Handles(routes, r); matched {
-			return redirect(r.URL.Path) // fixed trailing slash
+		if h := routes.Match(r); h != nil {
+			fastroute.FlushParameters(r)
+			return redirect(p) // fixed trailing slash
 		}
 
 		return nil
 	})
 
+	fastroute.CompareFunc = strings.EqualFold // case insensitive matching
 	http.ListenAndServe(":8080", router)
 }
 
@@ -212,10 +216,14 @@ func redirect(fixedPath string) http.Handler {
 }
 ```
 
+In cases when you know that all your routes are lowercase and parameters are only
+integers. Then you may just lowercase the fixed path and redirect instead of
+case insensitive matching.
+
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).
-Note, it uses [mux](https://github.com/DATA-DOG/fastroute/tree/mux/mux/mux.go) package,
+Note, it uses [mux](https://github.com/DATA-DOG/fastroute/tree/master/mux/mux.go) package,
 which is just an example made for this benchmark.
 
 Benchmark type            | repeats   | cpu time op    | mem op      | mem allocs op    |
@@ -307,7 +315,7 @@ down to targeted case implementation.
 **FastRoute** was easily adapted for this benchmark. Where static routes are served, nothing
 is better or faster than a **hashmap**. **FastRoute** allows to build any kind of router,
 depending on an use case. By default it targets smaller number of routes and the weakest
-link is a lot of dynamic routes, because these are matched one by one.
+link is a lot of dynamic routes, because these are matched one by one in order.
 
 ## Contributions
 

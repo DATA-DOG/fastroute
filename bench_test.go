@@ -51,27 +51,6 @@ func Benchmark_5Routes(b *testing.B) {
 	}
 }
 
-func Benchmark_HandlesRoute(b *testing.B) {
-	router := Route("/test/:id", http.NotFoundHandler())
-
-	req, err := http.NewRequest("GET", "http://localhost:8080/test/5", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	if ok, params := Handles(router, req); !ok {
-		b.Fatal("should have matched")
-	} else if params.ByName("id") != "5" {
-		b.Fatal("should have matched param")
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		Handles(router, req)
-	}
-}
-
 type mockResponseWriter struct{}
 
 func (m *mockResponseWriter) Header() (h http.Header) {

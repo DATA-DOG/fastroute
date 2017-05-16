@@ -110,12 +110,19 @@ type Mux struct {
 	routes map[string][]*route
 }
 
-// New creates Mux
+// New creates Mux with default options
 func New() *Mux {
-	return &Mux{}
+	return &Mux{
+		AutoOptionsReply:  true,
+		RedirectFixedPath: true,
+	}
 }
 
-// Method registers a route
+// Method registers handler for given request method
+// and path.
+//
+// Depending on ForceTrailingSlash, slash is either
+// appended or removed at the end of the path.
 func (m *Mux) Method(method, path string, handler interface{}) {
 	if nil == m.routes {
 		m.routes = make(map[string][]*route)
@@ -146,30 +153,37 @@ func (m *Mux) Method(method, path string, handler interface{}) {
 	m.routes[method] = append(m.routes[method], &route{path, h})
 }
 
+// GET is a shortcut for Method("GET", path, handler)
 func (m *Mux) GET(path string, handler interface{}) {
 	m.Method("GET", path, handler)
 }
 
+// HEAD is a shortcut for Method("HEAD", path, handler)
 func (m *Mux) HEAD(path string, handler interface{}) {
 	m.Method("HEAD", path, handler)
 }
 
+// OPTIONS is a shortcut for Method("OPTIONS", path, handler)
 func (m *Mux) OPTIONS(path string, handler interface{}) {
 	m.Method("OPTIONS", path, handler)
 }
 
+// POST is a shortcut for Method("POST", path, handler)
 func (m *Mux) POST(path string, handler interface{}) {
 	m.Method("POST", path, handler)
 }
 
+// PUT is a shortcut for Method("PUT", path, handler)
 func (m *Mux) PUT(path string, handler interface{}) {
 	m.Method("PUT", path, handler)
 }
 
+// PATCH is a shortcut for Method("PATCH", path, handler)
 func (m *Mux) PATCH(path string, handler interface{}) {
 	m.Method("PATCH", path, handler)
 }
 
+// DELETE is a shortcut for Method("DELETE", path, handler)
 func (m *Mux) DELETE(path string, handler interface{}) {
 	m.Method("DELETE", path, handler)
 }
@@ -182,15 +196,15 @@ func (m *Mux) Files(path string, root http.FileSystem) {
 		panic("path must end with match all: * segment'" + path + "'")
 	} else {
 		files := http.FileServer(root)
-		m.Method("GET", path, func(w http.ResponseWriter, r *http.Request) {
+		m.GET(path, func(w http.ResponseWriter, r *http.Request) {
 			r.URL.Path = fastroute.Parameters(r).ByName(path[pos+1:])
 			files.ServeHTTP(w, r)
 		})
 	}
 }
 
-// Server compiles http.Handler which is used as
-// router for all registered routes,
+// Server compiles fastroute.Router aka http.Handler
+// which is used as router for all registered routes,
 //
 // Routes are matched in following order:
 //  1. static routes are matched from hashmap.
@@ -212,12 +226,26 @@ func (m *Mux) Server() fastroute.Router {
 	})
 
 	return fastroute.New(
-		router, // maybe match configured routes
+		m.caseInsensitive(router),        // maybe match configured routes
 		m.redirectTrailingSlash(router),  // maybe trailing slash
 		m.redirectFixedPath(router),      // maybe fix path
 		m.autoOptions(routes),            // maybe options
 		m.handleMethodNotAllowed(routes), // maybe not allowed method
 	)
+}
+
+func (m *Mux) caseInsensitive(router fastroute.Router) fastroute.Router {
+	if !m.CaseInsensitive {
+		return router
+	}
+
+	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		before := fastroute.CompareFunc
+		fastroute.CompareFunc = strings.EqualFold
+		h := router.Match(req)
+		fastroute.CompareFunc = before
+		return h
+	})
 }
 
 func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
@@ -240,7 +268,8 @@ func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
 		*req2 = *req
 		req2.URL.Path = p
 
-		if matches, _ := fastroute.Handles(router, req2); matches {
+		if h := router.Match(req2); h != nil {
+			fastroute.FlushParameters(req2)
 			return redirect(p)
 		}
 		return nil
@@ -261,7 +290,8 @@ func (m *Mux) redirectFixedPath(router fastroute.Router) fastroute.Router {
 		*req2 = *req
 		req2.URL.Path = p
 
-		if matches, _ := fastroute.Handles(router, req2); matches {
+		if h := router.Match(req2); h != nil {
+			fastroute.FlushParameters(req2)
 			return redirect(p)
 		}
 		return nil
@@ -317,7 +347,8 @@ func (m *Mux) allowed(routers map[string]fastroute.Router, req *http.Request) []
 		}
 
 		// specific path
-		if matches, _ := fastroute.Handles(router, req); matches {
+		if h := router.Match(req); h != nil {
+			fastroute.FlushParameters(req)
 			allow[method] = true
 		}
 	}
@@ -344,14 +375,6 @@ func redirect(fixedPath string) http.Handler {
 // routes to match them more efficiently
 func (m *Mux) optimize() map[string]fastroute.Router {
 	routes := make(map[string]fastroute.Router)
-
-	if m.CaseInsensitive {
-		cmp := fastroute.CompareFunc
-		fastroute.CompareFunc = strings.EqualFold
-		defer func() {
-			fastroute.CompareFunc = cmp
-		}()
-	}
 
 	for method, pack := range m.routes {
 		static := make(map[string]http.Handler)
@@ -382,6 +405,7 @@ func (m *Mux) optimize() map[string]fastroute.Router {
 	return routes
 }
 
+// taken from https://github.com/julienschmidt/httprouter/blob/master/path.go
 func cleanPath(p string) string {
 	// Turn empty string into "/"
 	if p == "" {

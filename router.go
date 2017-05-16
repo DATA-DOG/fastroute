@@ -74,8 +74,6 @@ import (
 	"sync"
 )
 
-type compare func(string, string) bool
-
 // CompareFunc is used to compare static path
 // portions.
 //
@@ -83,10 +81,11 @@ type compare func(string, string) bool
 // order to use strings.EqualFold for example
 // in order to have case insensitive matching.
 //
-// When new Route is created it references this
-// func. So this method may be changed for various
-// routes.
-var CompareFunc compare = func(s1, s2 string) bool {
+// In cases if this func is changed during router
+// runtime and there is more than one router running
+// on the same application, it should be taken
+// into consideration.
+var CompareFunc func(string, string) bool = func(s1, s2 string) bool {
 	return s1 == s2
 }
 
@@ -100,6 +99,23 @@ func Parameters(req *http.Request) Params {
 		return p.params
 	}
 	return make(Params, 0)
+}
+
+// FlushParameters resets named parameters
+// if they were assigned to the request.
+//
+// When using Router.Match(http.Request) func
+// parameters will be flushed only if matched
+// http.Handler is served.
+//
+// If the purpose is just to test Router
+// whether it matches or not, without serving
+// matched handler, then this method should
+// be invoked to prevent leaking parameters.
+func FlushParameters(req *http.Request) {
+	if p := parameterized(req); p != nil {
+		p.reset(req)
+	}
 }
 
 // Params is a slice of key value pairs, as extracted from
@@ -187,7 +203,6 @@ func New(routes ...Router) Router {
 // Handler is a standard http.Handler which
 // may be accepted in the following formats:
 //  http.Handler
-//  http.HandlerFunc
 //  func(http.ResponseWriter, *http.Request)
 //
 // Static paths will be simply matched to
@@ -210,12 +225,10 @@ func Route(path string, handler interface{}) Router {
 		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
 	}
 
-	cmp := CompareFunc // keep used compare func reference, so it can be changed
-
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
 		return RouterFunc(func(r *http.Request) http.Handler {
-			if cmp(p, r.URL.Path) {
+			if CompareFunc(p, r.URL.Path) {
 				return h
 			}
 			return nil
@@ -259,7 +272,7 @@ func Route(path string, handler interface{}) Router {
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
 		p := pool.Get().(*parameters)
-		if match(segments, r.URL.Path, &p.params, ts, cmp) {
+		if match(segments, r.URL.Path, &p.params, ts) {
 			p.wrap(r)
 			return handle
 		}
@@ -268,28 +281,7 @@ func Route(path string, handler interface{}) Router {
 	})
 }
 
-// Handles tries to match given request against the
-// router. It also salvages the request parameters.
-// Indicates whether router matches given request and
-// gives matched named parameters.
-//
-// So if there is a need to test request without
-// actually serving it, then use this method instead
-// of Router.Match otherwise there will be parameter leaks.
-func Handles(router Router, req *http.Request) (bool, Params) {
-	params := make(Params, 0)
-	if h := router.Match(req); h != nil {
-		if p := parameterized(req); p != nil {
-			params = make(Params, len(p.params))
-			copy(params, p.params)
-			p.reset(req)
-		}
-		return true, params
-	}
-	return false, params
-}
-
-func match(segments []string, url string, ps *Params, ts bool, cmp compare) bool {
+func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, seg := range segments {
 		if lu := len(url); lu == 0 {
 			return false
@@ -310,7 +302,7 @@ func match(segments []string, url string, ps *Params, ts bool, cmp compare) bool
 			return true
 		} else if lu < len(seg) {
 			return false
-		} else if cmp(url[:len(seg)], seg) {
+		} else if CompareFunc(url[:len(seg)], seg) {
 			url = url[len(seg):]
 		} else {
 			return false

@@ -120,36 +120,39 @@ func TestStaticRouteMatcher(t *testing.T) {
 }
 
 func TestCompareFunc(t *testing.T) {
-	handler := http.NotFoundHandler()
-
-	route1 := Route("/status", handler)
-
 	before := CompareFunc
 	CompareFunc = strings.EqualFold
-	route2 := Route("/users/:id", handler)
+	defer func() {
+		CompareFunc = before
+	}()
 
-	CompareFunc = before
-	route3 := Route("/users/:id/roles", handler)
+	handler := http.NotFoundHandler()
 
-	router := New(route1, route2, route3)
+	router := New(
+		Route("/status", handler),
+		Route("/users/:id", handler),
+		Route("/users/:id/roles", handler),
+	)
 
-	cases := map[string]bool{
-		"/staTus":        false,
-		"/status":        true,
-		"/Users/5":       true,
-		"/users/35":      true,
-		"/users/2/roles": true,
-		"/Users/2/Roles": false,
+	cases := []string{
+		"/staTus",
+		"/status",
+		"/Users/5",
+		"/users/35",
+		"/users/2/roles",
+		"/Users/2/Roles",
 	}
 
-	for path, matched := range cases {
+	for _, path := range cases {
 		req, err := http.NewRequest("GET", path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if match, _ := Handles(router, req); match != matched {
-			t.Errorf("expected: %s match %v, but was %v", path, matched, match)
+		h := router.Match(req)
+		FlushParameters(req)
+		if h == nil {
+			t.Errorf("expected: %s to match", path)
 		}
 	}
 }
