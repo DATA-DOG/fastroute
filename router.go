@@ -27,7 +27,7 @@
 //  }
 //
 // The router can be composed of fastroute.Router interface, which shares
-// the same htto.Handler interface. This package provides only this orthogonal
+// the same http.Handler interface. This package provides only this orthogonal
 // interface as a building block.
 //
 // It also provides path pattern matching in order to construct dynamic routes
@@ -81,10 +81,9 @@ import (
 // order to use strings.EqualFold for example
 // in order to have case insensitive matching.
 //
-// In cases if this func is changed during router
+// Be careful if this func is changed during router
 // runtime and there is more than one router running
-// on the same application, it should be taken
-// into consideration.
+// on the same application.
 var CompareFunc func(string, string) bool = func(s1, s2 string) bool {
 	return s1 == s2
 }
@@ -104,7 +103,7 @@ func Parameters(req *http.Request) Params {
 // FlushParameters resets named parameters
 // if they were assigned to the request.
 //
-// When using Router.Match(http.Request) func
+// When using Router.Match(http.Request) func,
 // parameters will be flushed only if matched
 // http.Handler is served.
 //
@@ -136,25 +135,26 @@ func (ps Params) ByName(name string) string {
 	return ""
 }
 
-// Router is the robust interface allowing
-// to compose dynamic levels of request matchers
-// and all together implements http.Handler.
+// Router interface is robust and nothing more than
+// http.Handler. It simply extends it with one extra method to Match
+// http.Handler from http.Request and that allows to chain it
+// until a handler is matched.
 //
-// Match func should return handler or nil
-// if it cannot process the request.
+// Match func should return handler or nil.
 type Router interface {
 	http.Handler
 
 	// Match should return nil if request
-	// cannot be matched. At the top Router
-	// nil could indicate that NotFound handler
-	// can be applied.
+	// cannot be matched. When ServeHTTP is
+	// invoked and handler is nil, it will
+	// serve http.NotFoundHandler
 	//
 	// Note, if the router is matched and it has
 	// path parameters - then it must be served
 	// in order to release allocated parameters
-	// back to the pool. Otherwise you might
-	// introduce memory leaks
+	// back to the pool. Otherwise you will leak
+	// parameters, which you can also salvage by
+	// calling FlushParameters on http.Request
 	Match(*http.Request) http.Handler
 }
 

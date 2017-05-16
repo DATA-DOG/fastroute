@@ -1,13 +1,14 @@
 // package mux is full featured http router
 // using fastroute as core robust router, but enabling
 // all usual features including:
-// - route optimization, for faster lookups
-// - trailing slash and fixed path redirects
-// - case insensitive route match
-// - auto OPTIONS replies
-// - method not found handling
 //
-// NOTE: this package is just an example for fastroute implementation,
+//  - route optimization, for faster lookups
+//  - trailing slash and fixed path redirects
+//  - case insensitive route match
+//  - auto OPTIONS replies
+//  - method not found handling
+//
+// This package is just an example for fastroute implementation,
 // and will not be maintained to match all possible use
 // cases. Instead you should copy and adapt it for certain
 // customizations.

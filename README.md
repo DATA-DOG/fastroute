@@ -4,9 +4,20 @@
 
 # FastRoute
 
-Insanely **fast** and **robust** http router for golang. Only **~200**
+Insanely **fast** and **robust** http router for golang. Only **~150**
 lines of code. Uses standard **http.Handler** and has no limitations
 to path matching compared to routers derived from **HttpRouter**.
+
+> Less is more
+
+**fastroute.Router** interface is robust and nothing more than
+**http.Handler**. It simply extends it with one extra method to Match
+**http.Handler** from **http.Request** and that allows to chain it
+until a handler is matched.
+
+Apart from that **robust** interface **fastroute** adds a path
+pattern matching and named parameter support for flexibility
+and without memory allocation cost penalty.
 
 ``` go
 package main
@@ -36,22 +47,22 @@ func main() {
 ```
 
 In overall, it is **not all in one** router, it is the same **http.Handler**
-with do it yourself style, but with free **0 allocations** path pattern matching.
+with do it yourself style, but with **zero allocations** path pattern matching.
 Feel free to just copy it and adapt to your needs.
 
-This deserves a [quote](http://users.ece.utexas.edu/~adnan/pike.html) from **Rob Pike**:
+It deserves a [quote](http://users.ece.utexas.edu/~adnan/pike.html) from **Rob Pike**:
 
 > Fancy algorithms are slow when n is small, and n is usually small. Fancy
 > algorithms have big constants. Until you know that n is frequently going
 > to be big, don't get fancy.
 
-The trade off this router makes is the size of **n**. But it provides
+The trade off this router makes is the size of **n**. Instead it provides
 orthogonal building blocks, just like **http.Handler** does, in order to build
 customized routers.
 
 While all **HttpRouter** based implementations suffer from limitations such as
 disallowing routes like **/user/new** and **/user/:user** together, due to
-their tree structure. Or having custom **Handles** not compatible with
+their tree structured nature. Or having custom **Handles** not compatible with
 **http.Handler**. This router has none of these limitations.
 
 By default this router does not provide:
@@ -309,13 +320,13 @@ GorillaMux_StaticAll      |    1000   | 1536755 ns/op  | 115648 B/op |   1578 al
 HttpRouter_StaticAll      |  200000   |   10824 ns/op  |      0 B/op |      0 allocs/op |
 Pat_StaticAll             |    1000   | 1597577 ns/op  | 533904 B/op |  11123 allocs/op |
 
-We can see that **FastRoute** outperforms routers in some of the cases. In general it always boils
+We can see that **FastRoute** outperforms fastest routers in some of the cases. In general it always boils
 down to targeted case implementation.
 
 **FastRoute** was easily adapted for this benchmark. Where static routes are served, nothing
-is better or faster than a **hashmap**. **FastRoute** allows to build any kind of router,
+is better or faster than a static path **map**. **FastRoute** allows to build any kind of router,
 depending on an use case. By default it targets smaller number of routes and the weakest
-link is a lot of dynamic routes, because these are matched one by one in order.
+link is large set of dynamic routes, because these are matched one by one in order.
 
 ## Contributions
 
