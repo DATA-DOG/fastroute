@@ -219,6 +219,20 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	}
 }
 
+// func TestCaseFix(t *testing.T) {
+// 	handler := http.NotFoundHandler()
+// 	router := Route("/users/:username/roles", handler)
+
+// 	req, _ := http.NewRequest("GET", "http://127.0.0.1/useRs/gedi/rOles")
+
+// 	before := fastroute.CompareFunc
+// 	fastroute.CompareFunc = strings.EqualFold
+// 	h := router.Match(req)
+// 	fastroute.CompareFunc = before
+
+// 	params := Parameters(req)
+// }
+
 func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
 	defer func() {
 		if err := recover(); err != nil {

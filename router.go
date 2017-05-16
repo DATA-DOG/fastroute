@@ -100,6 +100,18 @@ func Parameters(req *http.Request) Params {
 	return make(Params, 0)
 }
 
+// Pattern gives matched route path pattern
+// for this request.
+//
+// If route is static, empty string will
+// be returned.
+func Pattern(req *http.Request) string {
+	if p := parameterized(req); p != nil {
+		return p.pattern
+	}
+	return ""
+}
+
 // FlushParameters resets named parameters
 // if they were assigned to the request.
 //
@@ -258,7 +270,7 @@ func Route(path string, handler interface{}) Router {
 	num := strings.Count(p, ":") + strings.Count(p, "*")
 	pool := sync.Pool{}
 	pool.New = func() interface{} {
-		return &parameters{params: make(Params, 0, num), pool: &pool}
+		return &parameters{params: make(Params, 0, num), pool: &pool, pattern: p}
 	}
 
 	// extend handler in order to salvage parameters
@@ -313,8 +325,9 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 
 type parameters struct {
 	io.ReadCloser
-	params Params
-	pool   *sync.Pool
+	params  Params
+	pattern string
+	pool    *sync.Pool
 }
 
 func (p *parameters) wrap(req *http.Request) {

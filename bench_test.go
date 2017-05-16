@@ -14,14 +14,8 @@ func Benchmark_1Param(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
+	benchRequest(b, router, req)
 }
 
 func Benchmark_5Routes(b *testing.B) {
@@ -41,14 +35,8 @@ func Benchmark_5Routes(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	w := &mockResponseWriter{}
-	router.ServeHTTP(w, req) // warmup
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, req)
-	}
+	benchRequest(b, router, req)
 }
 
 type mockResponseWriter struct{}
@@ -66,3 +54,18 @@ func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
 }
 
 func (m *mockResponseWriter) WriteHeader(int) {}
+
+func benchRequest(b *testing.B, router http.Handler, r *http.Request) {
+	w := new(mockResponseWriter)
+	u := r.URL
+	rq := u.RawQuery
+	r.RequestURI = u.RequestURI()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		u.RawQuery = rq
+		router.ServeHTTP(w, r)
+	}
+}

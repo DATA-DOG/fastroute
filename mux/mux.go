@@ -79,14 +79,10 @@ type route struct {
 
 // Mux request router
 type Mux struct {
-	// If enabled, all paths must end with a trailing slash
-	// and when route is registered, it will append a slash
-	// or redirect if it is missing.
-	//
-	// If disabled, it will remove trailing slash when path
-	// is registered and redirect if matched against path
-	// ending with trailing slash.
-	ForceTrailingSlash bool
+	// If enabled and none of routes match, then it
+	// will try adding or removing trailing slash to
+	// the path and redirect if there is such route.
+	RedirectTrailingSlash bool
 
 	// If enabled, attempts to fix path from multiple slashes
 	// or dots.
@@ -96,10 +92,6 @@ type Mux struct {
 	// is no route configured for this method. It will
 	// respond with methods allowed for the matched path
 	AutoOptionsReply bool
-
-	// If enabled matches static portions of routes
-	// without case sensitivity
-	CaseInsensitive bool
 
 	// If set and requested path method is not allowed
 	// but there are some of the methods allowed for this
@@ -114,8 +106,9 @@ type Mux struct {
 // New creates Mux with default options
 func New() *Mux {
 	return &Mux{
-		AutoOptionsReply:  true,
-		RedirectFixedPath: true,
+		AutoOptionsReply:      true,
+		RedirectFixedPath:     true,
+		RedirectTrailingSlash: true,
 	}
 }
 
@@ -137,17 +130,6 @@ func (m *Mux) Method(method, path string, handler interface{}) {
 		h = http.HandlerFunc(t)
 	default:
 		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
-	}
-
-	// ensure trailing slash as configured
-	if len(path) > 1 {
-		ts := path[len(path)-1] == '/'
-		if m.ForceTrailingSlash && !ts {
-			path += "/"
-		}
-		if !m.ForceTrailingSlash && ts {
-			path = path[:len(path)-1]
-		}
 	}
 
 	method = strings.ToUpper(method)
@@ -227,7 +209,7 @@ func (m *Mux) Server() fastroute.Router {
 	})
 
 	return fastroute.New(
-		m.caseInsensitive(router),        // maybe match configured routes
+		router, // maybe match configured routes
 		m.redirectTrailingSlash(router),  // maybe trailing slash
 		m.redirectFixedPath(router),      // maybe fix path
 		m.autoOptions(routes),            // maybe options
@@ -235,42 +217,27 @@ func (m *Mux) Server() fastroute.Router {
 	)
 }
 
-func (m *Mux) caseInsensitive(router fastroute.Router) fastroute.Router {
-	if !m.CaseInsensitive {
+func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
+	if !m.RedirectTrailingSlash {
 		return router
 	}
 
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		before := fastroute.CompareFunc
-		fastroute.CompareFunc = strings.EqualFold
-		h := router.Match(req)
-		fastroute.CompareFunc = before
-		return h
-	})
-}
-
-func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
 	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		p := req.URL.Path
 		if p == "/" {
 			return nil // nothing to fix
 		}
 
-		ts := p[len(p)-1] == '/'
-		if m.ForceTrailingSlash && !ts {
-			p += "/"
-		} else if !m.ForceTrailingSlash && ts {
+		if p[len(p)-1] == '/' {
 			p = p[:len(p)-1]
 		} else {
-			return nil // nothing was fixed
+			p += "/"
 		}
 
-		req2 := new(http.Request)
-		*req2 = *req
-		req2.URL.Path = p
-
-		if h := router.Match(req2); h != nil {
-			fastroute.FlushParameters(req2)
+		try, _ := http.NewRequest(req.Method, req.URL.String(), nil)
+		try.URL.Path = p
+		if h := router.Match(try); h != nil {
+			fastroute.FlushParameters(try)
 			return redirect(p)
 		}
 		return nil
@@ -278,21 +245,54 @@ func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
 }
 
 func (m *Mux) redirectFixedPath(router fastroute.Router) fastroute.Router {
+	if !m.RedirectFixedPath {
+		return router
+	}
 	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if !m.RedirectFixedPath {
+		try, _ := http.NewRequest(req.Method, req.URL.String(), nil)
+
+		p := cleanPath(req.URL.Path)
+		if p != req.URL.Path {
+			try.URL.Path = p
+
+			if h := router.Match(try); h != nil {
+				fastroute.FlushParameters(try)
+				return redirect(p)
+			}
+		}
+
+		// now case insensitive match
+		before := fastroute.CompareFunc
+		fastroute.CompareFunc = strings.EqualFold
+		h := router.Match(try)
+		fastroute.CompareFunc = before
+
+		if h == nil {
 			return nil
 		}
-		p := cleanPath(req.URL.Path)
-		if p == req.URL.Path {
-			return nil // nothing to fix
+
+		if params := fastroute.Parameters(try); len(params) == 0 {
+			// static route, should be lowercase
+			p = strings.ToLower(p)
+		} else if pat := fastroute.Pattern(try); len(pat) > 0 {
+			// with named params
+			var fixed []string
+			var nextParam int
+			for _, segment := range strings.Split(pat, "/") {
+				if strings.IndexAny(segment, ":*") != -1 {
+					fixed = append(fixed, params[nextParam].Value)
+					nextParam++
+				} else {
+					fixed = append(fixed, segment)
+				}
+			}
+			p = strings.Join(fixed, "/")
+			fastroute.FlushParameters(try)
 		}
 
-		req2 := new(http.Request)
-		*req2 = *req
-		req2.URL.Path = p
-
-		if h := router.Match(req2); h != nil {
-			fastroute.FlushParameters(req2)
+		try.URL.Path = p
+		if h := router.Match(try); h != nil {
+			fastroute.FlushParameters(try)
 			return redirect(p)
 		}
 		return nil
