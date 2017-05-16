@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -114,6 +115,41 @@ func TestStaticRouteMatcher(t *testing.T) {
 		}
 		if !b && router.Match(req) != nil {
 			t.Fatalf("did not expect to match: %s", p)
+		}
+	}
+}
+
+func TestCompareFunc(t *testing.T) {
+	handler := http.NotFoundHandler()
+
+	route1 := Route("/status", handler)
+
+	before := CompareFunc
+	CompareFunc = strings.EqualFold
+	route2 := Route("/users/:id", handler)
+
+	CompareFunc = before
+	route3 := Route("/users/:id/roles", handler)
+
+	router := New(route1, route2, route3)
+
+	cases := map[string]bool{
+		"/staTus":        false,
+		"/status":        true,
+		"/Users/5":       true,
+		"/users/35":      true,
+		"/users/2/roles": true,
+		"/Users/2/Roles": false,
+	}
+
+	for path, matched := range cases {
+		req, err := http.NewRequest("GET", path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if match, _ := Handles(router, req); match != matched {
+			t.Errorf("expected: %s match %v, but was %v", path, matched, match)
 		}
 	}
 }

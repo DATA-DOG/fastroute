@@ -74,6 +74,22 @@ import (
 	"sync"
 )
 
+type compare func(string, string) bool
+
+// CompareFunc is used to compare static path
+// portions.
+//
+// It is possible to override it in
+// order to use strings.EqualFold for example
+// in order to have case insensitive matching.
+//
+// When new Route is created it references this
+// func. So this method may be changed for various
+// routes.
+var CompareFunc compare = func(s1, s2 string) bool {
+	return s1 == s2
+}
+
 // Parameters returns all path parameters for given
 // request.
 //
@@ -194,10 +210,12 @@ func Route(path string, handler interface{}) Router {
 		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
 	}
 
+	cmp := CompareFunc // keep used compare func reference, so it can be changed
+
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
 		return RouterFunc(func(r *http.Request) http.Handler {
-			if p == r.URL.Path {
+			if cmp(p, r.URL.Path) {
 				return h
 			}
 			return nil
@@ -241,7 +259,7 @@ func Route(path string, handler interface{}) Router {
 	// dynamic route matcher
 	return RouterFunc(func(r *http.Request) http.Handler {
 		p := pool.Get().(*parameters)
-		if match(segments, r.URL.Path, &p.params, ts) {
+		if match(segments, r.URL.Path, &p.params, ts, cmp) {
 			p.wrap(r)
 			return handle
 		}
@@ -271,13 +289,11 @@ func Handles(router Router, req *http.Request) (bool, Params) {
 	return false, params
 }
 
-func match(segments []string, url string, ps *Params, ts bool) bool {
+func match(segments []string, url string, ps *Params, ts bool, cmp compare) bool {
 	for _, seg := range segments {
-		lu := len(url)
-		switch {
-		case lu == 0:
+		if lu := len(url); lu == 0 {
 			return false
-		case seg[1] == ':': // match param
+		} else if seg[1] == ':' {
 			n := len(*ps)
 			*ps = (*ps)[:n+1]
 			end := 1
@@ -287,16 +303,16 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 
 			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:end]
 			url = url[end:]
-		case seg[1] == '*': // match remaining
+		} else if seg[1] == '*' {
 			n := len(*ps)
 			*ps = (*ps)[:n+1]
 			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url
 			return true
-		case lu < len(seg): // ensure length
+		} else if lu < len(seg) {
 			return false
-		case url[:len(seg)] == seg: // match static
+		} else if cmp(url[:len(seg)], seg) {
 			url = url[len(seg):]
-		default:
+		} else {
 			return false
 		}
 	}

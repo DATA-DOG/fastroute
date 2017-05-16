@@ -51,7 +51,7 @@ func Benchmark_5Routes(b *testing.B) {
 	}
 }
 
-func Benchmark_MatchingRoute(b *testing.B) {
+func Benchmark_HandlesRoute(b *testing.B) {
 	router := Route("/test/:id", http.NotFoundHandler())
 
 	req, err := http.NewRequest("GET", "http://localhost:8080/test/5", nil)
