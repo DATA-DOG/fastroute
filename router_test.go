@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -105,27 +106,31 @@ func TestStaticRouteMatcher(t *testing.T) {
 		Route("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
 	)
 
-	for p, b := range cases {
-		req, err := http.NewRequest("GET", p, nil)
+	for path, matched := range cases {
+		req, err := http.NewRequest("GET", path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b && router.Match(req) == nil {
-			t.Fatalf("expected to match: %s", p)
+		if matched && router.Match(req) == nil {
+			t.Fatalf("expected to match: %s", path)
 		}
-		if !b && router.Match(req) != nil {
-			t.Fatalf("did not expect to match: %s", p)
+		if !matched && router.Match(req) != nil {
+			t.Fatalf("did not expect to match: %s", path)
+		}
+
+		pat := Pattern(req)
+		if pat != path && matched {
+			t.Fatalf("expected matched pattern: %s is not the same: %s", pat, path)
+		}
+
+		params := Parameters(req)
+		if !reflect.DeepEqual(emptyParams, params) {
+			t.Fatal("expected empty params")
 		}
 	}
 }
 
-func TestCompareFunc(t *testing.T) {
-	before := CompareFunc
-	CompareFunc = strings.EqualFold
-	defer func() {
-		CompareFunc = before
-	}()
-
+func TestCompareBy(t *testing.T) {
 	handler := http.NotFoundHandler()
 
 	router := New(
@@ -133,6 +138,7 @@ func TestCompareFunc(t *testing.T) {
 		Route("/users/:id", handler),
 		Route("/users/:id/roles", handler),
 	)
+	router = ComparesPathWith(router, strings.EqualFold)
 
 	cases := []string{
 		"/staTus",
@@ -150,7 +156,7 @@ func TestCompareFunc(t *testing.T) {
 		}
 
 		h := router.Match(req)
-		FlushParameters(req)
+		Recycle(req)
 		if h == nil {
 			t.Errorf("expected: %s to match", path)
 		}
@@ -158,7 +164,9 @@ func TestCompareFunc(t *testing.T) {
 }
 
 func TestDynamicRouteMatcher(t *testing.T) {
-	handler := http.NotFoundHandler()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, "OK")
+	})
 	router := New(
 		Route("/a/:b/c", handler),
 		Route("/category/:cid/product/*rest", handler),
@@ -169,25 +177,26 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	)
 
 	cases := []struct {
-		path   string
-		params map[string]string
-		match  bool
+		path    string
+		pattern string
+		params  map[string]string
+		match   bool
 	}{
-		{"/a/dic/c", map[string]string{"b": "dic"}, true},
-		{"/a/d/c", map[string]string{"b": "d"}, true},
-		{"/a/c", map[string]string{}, false},
-		{"/a/c/c", map[string]string{"b": "c"}, true},
-		{"/a/c/b", map[string]string{}, false},
-		{"/a/c/c/", map[string]string{}, false},
-		{"/category/5/product/x/a/bc", map[string]string{"cid": "5", "rest": "/x/a/bc"}, true},
-		{"/users/a/b/", map[string]string{"id": "a", "bid": "b"}, true},
-		{"/users/a/b/be/", map[string]string{}, false},
-		{"/applications/:client_id/tokens", map[string]string{"client_id": ":client_id"}, true},
-		{"/repos/:owner/:repo/issues/:number/labels", map[string]string{}, false},
-		{"/files/LICENSE", map[string]string{"filepath": "/LICENSE"}, true},
-		{"/files/", map[string]string{"filepath": "/"}, true},
-		{"/files", map[string]string{}, false},
-		{"/files/css/style.css", map[string]string{"filepath": "/css/style.css"}, true},
+		{"/a/dic/c", "/a/:b/c", map[string]string{"b": "dic"}, true},
+		{"/a/d/c", "/a/:b/c", map[string]string{"b": "d"}, true},
+		{"/a/c", "", map[string]string{}, false},
+		{"/a/c/c", "/a/:b/c", map[string]string{"b": "c"}, true},
+		{"/a/c/b", "", map[string]string{}, false},
+		{"/a/c/c/", "", map[string]string{}, false},
+		{"/category/5/product/x/a/bc", "/category/:cid/product/*rest", map[string]string{"cid": "5", "rest": "/x/a/bc"}, true},
+		{"/users/a/b/", "/users/:id/:bid/", map[string]string{"id": "a", "bid": "b"}, true},
+		{"/users/a/b/be/", "", map[string]string{}, false},
+		{"/applications/:client_id/tokens", "/applications/:client_id/tokens", map[string]string{"client_id": ":client_id"}, true},
+		{"/repos/:owner/:repo/issues/:number/labels", "", map[string]string{}, false},
+		{"/files/LICENSE", "/files/*filepath", map[string]string{"filepath": "/LICENSE"}, true},
+		{"/files/", "/files/*filepath", map[string]string{"filepath": "/"}, true},
+		{"/files", "", map[string]string{}, false},
+		{"/files/css/style.css", "/files/*filepath", map[string]string{"filepath": "/css/style.css"}, true},
 	}
 
 	for i, c := range cases {
@@ -203,19 +212,33 @@ func TestDynamicRouteMatcher(t *testing.T) {
 			t.Fatalf("did not expect to match: %s", c.path)
 		}
 
-		if h == nil {
-			continue
+		pat := Pattern(req)
+		if pat != c.pattern {
+			t.Fatalf("expected matched pattern: %s does not match to: %s, case: %d", c.pattern, pat, i)
 		}
 
+		params := Parameters(req)
 		for key, val := range c.params {
-			act := Parameters(req).ByName(key)
+			act := params.ByName(key)
 			if act != val {
 				t.Fatalf("param: %s expected %s does not match to: %s, case: %d", key, val, act, i)
 			}
 		}
 
+		if h == nil {
+			continue
+		}
+
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
+
+		if w.Body.String() != "OK" || w.Code != 200 {
+			t.Fatal("not expected response body or code")
+		}
+
+		if params := Parameters(req); len(params) != 0 {
+			t.Fatal("parameters should have been flushed")
+		}
 	}
 }
 

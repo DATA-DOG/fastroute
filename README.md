@@ -208,7 +208,7 @@ func main() {
 		r.URL.Path = p
 
 		if h := routes.Match(r); h != nil {
-			fastroute.FlushParameters(r)
+			fastroute.Recycle(r)
 			return redirect(p) // fixed trailing slash
 		}
 

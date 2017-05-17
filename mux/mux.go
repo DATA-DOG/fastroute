@@ -4,7 +4,6 @@
 //
 //  - route optimization, for faster lookups
 //  - trailing slash and fixed path redirects
-//  - case insensitive route match
 //  - auto OPTIONS replies
 //  - method not found handling
 //
@@ -237,7 +236,7 @@ func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
 		try, _ := http.NewRequest(req.Method, req.URL.String(), nil)
 		try.URL.Path = p
 		if h := router.Match(try); h != nil {
-			fastroute.FlushParameters(try)
+			fastroute.Recycle(try)
 			return redirect(p)
 		}
 		return nil
@@ -256,46 +255,34 @@ func (m *Mux) redirectFixedPath(router fastroute.Router) fastroute.Router {
 			try.URL.Path = p
 
 			if h := router.Match(try); h != nil {
-				fastroute.FlushParameters(try)
+				fastroute.Recycle(try)
 				return redirect(p)
 			}
 		}
 
 		// now case insensitive match
-		before := fastroute.CompareFunc
-		fastroute.CompareFunc = strings.EqualFold
-		h := router.Match(try)
-		fastroute.CompareFunc = before
-
+		h := fastroute.ComparesPathWith(router, strings.EqualFold).Match(try)
 		if h == nil {
 			return nil
 		}
 
-		if params := fastroute.Parameters(try); len(params) == 0 {
-			// static route, should be lowercase
-			p = strings.ToLower(p)
-		} else if pat := fastroute.Pattern(try); len(pat) > 0 {
-			// with named params
-			var fixed []string
-			var nextParam int
-			for _, segment := range strings.Split(pat, "/") {
-				if strings.IndexAny(segment, ":*") != -1 {
-					fixed = append(fixed, params[nextParam].Value)
-					nextParam++
-				} else {
-					fixed = append(fixed, segment)
-				}
+		// matched case insensitive, lets fix the path
+		pat := fastroute.Pattern(try)
+		params := fastroute.Parameters(try)
+		var fixed []string
+		var nextParam int
+		for _, segment := range strings.Split(pat, "/") {
+			if strings.IndexAny(segment, ":*") != -1 {
+				fixed = append(fixed, params[nextParam].Value)
+				nextParam++
+			} else {
+				fixed = append(fixed, segment)
 			}
-			p = strings.Join(fixed, "/")
-			fastroute.FlushParameters(try)
 		}
+		p = strings.Join(fixed, "/")
+		fastroute.Recycle(try)
 
-		try.URL.Path = p
-		if h := router.Match(try); h != nil {
-			fastroute.FlushParameters(try)
-			return redirect(p)
-		}
-		return nil
+		return redirect(p)
 	})
 }
 
@@ -349,7 +336,7 @@ func (m *Mux) allowed(routers map[string]fastroute.Router, req *http.Request) []
 
 		// specific path
 		if h := router.Match(req); h != nil {
-			fastroute.FlushParameters(req)
+			fastroute.Recycle(req)
 			allow[method] = true
 		}
 	}

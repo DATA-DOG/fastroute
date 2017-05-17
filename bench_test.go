@@ -18,6 +18,19 @@ func Benchmark_1Param(b *testing.B) {
 	benchRequest(b, router, req)
 }
 
+func Benchmark_Static(b *testing.B) {
+	router := Route("/static/path/pattern", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/static/path/pattern", nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	benchRequest(b, router, req)
+}
+
 func Benchmark_5Routes(b *testing.B) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(Parameters(r).ByName("id")))

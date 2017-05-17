@@ -74,20 +74,6 @@ import (
 	"sync"
 )
 
-// CompareFunc is used to compare static path
-// portions.
-//
-// It is possible to override it in
-// order to use strings.EqualFold for example
-// in order to have case insensitive matching.
-//
-// Be careful if this func is changed during router
-// runtime and there is more than one router running
-// on the same application.
-var CompareFunc func(string, string) bool = func(s1, s2 string) bool {
-	return s1 == s2
-}
-
 // Parameters returns all path parameters for given
 // request.
 //
@@ -97,14 +83,15 @@ func Parameters(req *http.Request) Params {
 	if p := parameterized(req); p != nil {
 		return p.params
 	}
-	return make(Params, 0)
+	return emptyParams
 }
 
 // Pattern gives matched route path pattern
 // for this request.
 //
-// If route is static, empty string will
-// be returned.
+// If request parameters were already flushed,
+// meaning - it was either served or recycled
+// manually, then empty string will be returned.
 func Pattern(req *http.Request) string {
 	if p := parameterized(req); p != nil {
 		return p.pattern
@@ -112,7 +99,7 @@ func Pattern(req *http.Request) string {
 	return ""
 }
 
-// FlushParameters resets named parameters
+// Recycle resets named parameters
 // if they were assigned to the request.
 //
 // When using Router.Match(http.Request) func,
@@ -123,7 +110,11 @@ func Pattern(req *http.Request) string {
 // whether it matches or not, without serving
 // matched handler, then this method should
 // be invoked to prevent leaking parameters.
-func FlushParameters(req *http.Request) {
+//
+// If the route is not matched and handler is nil,
+// then parameters will not be allocated, same
+// as for static paths.
+func Recycle(req *http.Request) {
 	if p := parameterized(req); p != nil {
 		p.reset(req)
 	}
@@ -166,7 +157,7 @@ type Router interface {
 	// in order to release allocated parameters
 	// back to the pool. Otherwise you will leak
 	// parameters, which you can also salvage by
-	// calling FlushParameters on http.Request
+	// calling Recycle on http.Request
 	Match(*http.Request) http.Handler
 }
 
@@ -239,8 +230,10 @@ func Route(path string, handler interface{}) Router {
 
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
+		ps := &parameters{params: emptyParams, pattern: p}
 		return RouterFunc(func(r *http.Request) http.Handler {
-			if CompareFunc(p, r.URL.Path) {
+			if compareFunc(p, r.URL.Path) {
+				ps.wrap(r)
 				return h
 			}
 			return nil
@@ -293,6 +286,24 @@ func Route(path string, handler interface{}) Router {
 	})
 }
 
+// ComparesPathWith allows to use custom static path segment
+// comparison func.
+//
+// By default it uses case sensitive comparison, but
+// it can be overriden with for example strings.EqualFold
+// to have case insensitive match.
+//
+// Note that, if application uses more than one router,
+// it might conflict when applied concurrently.
+func ComparesPathWith(router Router, cmp func(s1, s2 string) bool) Router {
+	return RouterFunc(func(req *http.Request) http.Handler {
+		compareFunc = cmp
+		handler := router.Match(req)
+		compareFunc = caseSensitiveCompare
+		return handler
+	})
+}
+
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, seg := range segments {
 		if lu := len(url); lu == 0 {
@@ -314,7 +325,7 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 			return true
 		} else if lu < len(seg) {
 			return false
-		} else if CompareFunc(url[:len(seg)], seg) {
+		} else if compareFunc(url[:len(seg)], seg) {
 			url = url[len(seg):]
 		} else {
 			return false
@@ -322,6 +333,15 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 	}
 	return (!ts && url == "") || (ts && url == "/") // match trailing slash
 }
+
+// the default static segment comparison function
+func caseSensitiveCompare(s1, s2 string) bool {
+	return s1 == s2
+}
+
+// compareFunc is used to compare static path
+// can be overriden by ComparesPathWith middleware
+var compareFunc func(string, string) bool = caseSensitiveCompare
 
 type parameters struct {
 	io.ReadCloser
@@ -336,8 +356,10 @@ func (p *parameters) wrap(req *http.Request) {
 }
 
 func (p *parameters) reset(req *http.Request) {
-	p.params = p.params[0:0]
-	p.pool.Put(p)
+	if p.pool != nil { // only routes with path parameters have a pool
+		p.params = p.params[0:0]
+		p.pool.Put(p)
+	}
 	req.Body = p.ReadCloser
 }
 
@@ -347,3 +369,5 @@ func parameterized(req *http.Request) *parameters {
 	}
 	return nil
 }
+
+var emptyParams = make(Params, 0, 0)
