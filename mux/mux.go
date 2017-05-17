@@ -62,11 +62,6 @@ import (
 	"github.com/DATA-DOG/fastroute"
 )
 
-type route struct {
-	path string
-	h    http.Handler
-}
-
 // Mux request router
 type Mux struct {
 	// If enabled and none of routes match, then it
@@ -99,7 +94,7 @@ type Mux struct {
 	// it will use this.
 	NotFound http.Handler
 
-	routes map[string][]*route
+	routes map[string]fastroute.Router
 }
 
 // New creates Mux with default options
@@ -118,7 +113,7 @@ func New() *Mux {
 // appended or removed at the end of the path.
 func (m *Mux) Method(method, path string, handler interface{}) {
 	if nil == m.routes {
-		m.routes = make(map[string][]*route)
+		m.routes = make(map[string]fastroute.Router)
 	}
 
 	var h http.Handler = nil
@@ -132,7 +127,12 @@ func (m *Mux) Method(method, path string, handler interface{}) {
 	}
 
 	method = strings.ToUpper(method)
-	m.routes[method] = append(m.routes[method], &route{path, h})
+	route := fastroute.Route(path, h)
+	if router, ok := m.routes[method]; ok {
+		m.routes[method] = fastroute.New(router, route) // chain new route
+	} else {
+		m.routes[method] = route
+	}
 }
 
 // GET is a shortcut for Method("GET", path, handler)
@@ -195,10 +195,8 @@ func (m *Mux) Files(path string, root http.FileSystem) {
 // If path does not match, not found handler is called,
 // in order to customize it, wrap this resulted router.
 func (m *Mux) Server() fastroute.Router {
-	routes := m.optimize()
-
 	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if router := routes[req.Method]; router != nil {
+		if router := m.routes[req.Method]; router != nil {
 			if h := router.Match(req); h != nil {
 				return h
 			}
@@ -209,24 +207,15 @@ func (m *Mux) Server() fastroute.Router {
 
 	return fastroute.New(
 		router, // maybe match configured routes
-		m.redirectTrailingOrFixedPath(router), // maybe trailing slash or path fix
-		m.autoOptions(routes),                 // maybe options
-		m.handleMethodNotAllowed(routes),      // maybe not allowed method
-		m.notFound(router),                    // finally, custom or default not found handler
+		m.redirectTrailingOrFixedPath(router),          // maybe trailing slash or path fix
+		fastroute.RouterFunc(m.autoOptions),            // maybe options
+		fastroute.RouterFunc(m.handleMethodNotAllowed), // maybe not allowed method
+		fastroute.RouterFunc(m.notFound),               // finally, custom or default not found handler
 	)
 }
 
-func (m *Mux) notFound(router fastroute.Router) fastroute.Router {
-	if m.NotFound == nil {
-		return router // default not found handler
-	}
-
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if h := router.Match(req); h != nil {
-			return h
-		}
-		return m.NotFound
-	})
+func (m *Mux) notFound(req *http.Request) http.Handler {
+	return m.NotFound // nil will result in fallback to default not found handler
 }
 
 func (m *Mux) redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
@@ -275,43 +264,37 @@ func (m *Mux) redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Rou
 	})
 }
 
-func (m *Mux) autoOptions(routers map[string]fastroute.Router) fastroute.Router {
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if req.Method != "OPTIONS" || !m.AutoOptionsReply {
-			return nil
-		}
-
-		if allow := m.allowed(routers, req); len(allow) > 0 {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Allow", strings.Join(allow, ","))
-			})
-		}
-
+func (m *Mux) autoOptions(req *http.Request) http.Handler {
+	if req.Method != "OPTIONS" || !m.AutoOptionsReply {
 		return nil
-	})
+	}
+
+	if allow := m.allowed(req); len(allow) > 0 {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Allow", strings.Join(allow, ","))
+		})
+	}
+	return nil
 }
 
-func (m *Mux) handleMethodNotAllowed(routers map[string]fastroute.Router) fastroute.Router {
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if nil == m.MethodNotAllowed {
-			return nil // not handled
-		}
+func (m *Mux) handleMethodNotAllowed(req *http.Request) http.Handler {
+	if nil == m.MethodNotAllowed {
+		return nil // not handled
+	}
 
-		if allow := m.allowed(routers, req); len(allow) > 0 {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Allow", strings.Join(allow, ","))
-				m.MethodNotAllowed.ServeHTTP(w, r)
-			})
-		}
-
-		return nil
-	})
+	if allow := m.allowed(req); len(allow) > 0 {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Allow", strings.Join(allow, ","))
+			m.MethodNotAllowed.ServeHTTP(w, r)
+		})
+	}
+	return nil
 }
 
-func (m *Mux) allowed(routers map[string]fastroute.Router, req *http.Request) []string {
+func (m *Mux) allowed(req *http.Request) []string {
 	allow := make(map[string]bool)
 	allow["OPTIONS"] = true
-	for method, router := range routers {
+	for method, router := range m.routes {
 		// Skip the requested method - we already tried this one
 		if method == req.Method {
 			continue
@@ -346,38 +329,4 @@ func redirect(fixedPath string) http.Handler {
 		req.URL.Path = fixedPath
 		http.Redirect(w, req, req.URL.String(), http.StatusPermanentRedirect)
 	})
-}
-
-// this is just a way to optimize and combine
-// routes to match them more efficiently
-func (m *Mux) optimize() map[string]fastroute.Router {
-	routes := make(map[string]fastroute.Router)
-
-	for method, pack := range m.routes {
-		static := make(map[string]http.Handler)
-		var named []fastroute.Router
-
-		for _, route := range pack {
-			if idx := strings.IndexAny(route.path, ":*"); idx == -1 {
-				static[route.path] = route.h
-			} else {
-				named = append(named, fastroute.Route(route.path, route.h))
-			}
-		}
-
-		var routers []fastroute.Router
-		if len(static) > 0 {
-			staticRouter := fastroute.RouterFunc(func(req *http.Request) http.Handler {
-				return static[req.URL.Path]
-			})
-			routers = append(routers, staticRouter)
-		}
-
-		if len(named) > 0 {
-			routers = append(routers, fastroute.New(named...))
-		}
-
-		routes[method] = fastroute.New(routers...)
-	}
-	return routes
 }
