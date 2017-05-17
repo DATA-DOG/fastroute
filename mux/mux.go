@@ -10,7 +10,7 @@
 // This package is just an example for fastroute implementation,
 // and will not be maintained to match all possible use
 // cases. Instead you should copy and adapt it for certain
-// customizations.
+// customizations if these are not sensible defaults.
 //
 // A trivial example is:
 //
@@ -39,33 +39,24 @@
 //      log.Fatal(http.ListenAndServe(":8080", router.Server()))
 //  }
 //
-// Not found handler can be customized by extending the produced router with
-// a middleware:
+// Not found handler can be customized by assigning custom handler:
 //
 //  router := mux.New()
 //  router.GET("/", Index)
 //  router.GET("/hello/:name", Hello)
 //
-//  notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+//  router.NotFound = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 //  	w.WriteHeader(404)
 //  	fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
 //  })
 //
-//  server := router.Server()
-//  log.Fatal(http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
-//  	if h := server.Match(req); h != nil {
-//  		return h
-//  	}
-//  	return notFoundHandler
-//  })))
-//
-// This in general says, that if there is no handler matched from registered
-// routes, then use notFoundHandler
+//  log.Fatal(http.ListenAndServe(":8080", router.Server()))
 package mux
 
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/DATA-DOG/fastroute"
@@ -81,10 +72,14 @@ type Mux struct {
 	// If enabled and none of routes match, then it
 	// will try adding or removing trailing slash to
 	// the path and redirect if there is such route.
+	// If combined with RedirectFixedPath it may fix
+	// both trailing slash and path.
 	RedirectTrailingSlash bool
 
 	// If enabled, attempts to fix path from multiple slashes
-	// or dots.
+	// or dots also path case mismatches.
+	// If combined with RedirectTrailingSlash it may fix
+	// both trailing slash and path.
 	RedirectFixedPath bool
 
 	// If enabled, if request method is OPTIONS and there
@@ -98,6 +93,11 @@ type Mux struct {
 	// use that handler to serve request, which usually should
 	// respond with 405 status code
 	MethodNotAllowed http.Handler
+
+	// If set and request did not match any of routes,
+	// then instead of default http.NotFoundHandler
+	// it will use this.
+	NotFound http.Handler
 
 	routes map[string][]*route
 }
@@ -209,80 +209,69 @@ func (m *Mux) Server() fastroute.Router {
 
 	return fastroute.New(
 		router, // maybe match configured routes
-		m.redirectTrailingSlash(router),  // maybe trailing slash
-		m.redirectFixedPath(router),      // maybe fix path
-		m.autoOptions(routes),            // maybe options
-		m.handleMethodNotAllowed(routes), // maybe not allowed method
+		m.redirectTrailingOrFixedPath(router), // maybe trailing slash or path fix
+		m.autoOptions(routes),                 // maybe options
+		m.handleMethodNotAllowed(routes),      // maybe not allowed method
+		m.notFound(router),                    // finally, custom or default not found handler
 	)
 }
 
-func (m *Mux) redirectTrailingSlash(router fastroute.Router) fastroute.Router {
-	if !m.RedirectTrailingSlash {
-		return router
+func (m *Mux) notFound(router fastroute.Router) fastroute.Router {
+	if m.NotFound == nil {
+		return router // default not found handler
+	}
+
+	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		if h := router.Match(req); h != nil {
+			return h
+		}
+		return m.NotFound
+	})
+}
+
+func (m *Mux) redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
+	if !m.RedirectFixedPath || !m.RedirectTrailingSlash {
+		return router // nothing to try fixing
 	}
 
 	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		p := req.URL.Path
-		if p == "/" {
-			return nil // nothing to fix
+		rt := router
+		if m.RedirectFixedPath {
+			p = path.Clean(req.URL.Path)
+			rt = fastroute.ComparesPathWith(router, strings.EqualFold) // case insensitive matching
 		}
 
-		if p[len(p)-1] == '/' {
-			p = p[:len(p)-1]
-		} else {
-			p += "/"
-		}
-
-		try, _ := http.NewRequest(req.Method, req.URL.String(), nil)
-		try.URL.Path = p
-		if h := router.Match(try); h != nil {
-			fastroute.Recycle(try)
-			return redirect(p)
-		}
-		return nil
-	})
-}
-
-func (m *Mux) redirectFixedPath(router fastroute.Router) fastroute.Router {
-	if !m.RedirectFixedPath {
-		return router
-	}
-	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		try, _ := http.NewRequest(req.Method, req.URL.String(), nil)
-
-		p := cleanPath(req.URL.Path)
-		if p != req.URL.Path {
-			try.URL.Path = p
-
-			if h := router.Match(try); h != nil {
-				fastroute.Recycle(try)
-				return redirect(p)
-			}
-		}
-
-		// now case insensitive match
-		h := fastroute.ComparesPathWith(router, strings.EqualFold).Match(try)
-		if h == nil {
-			return nil
-		}
-
-		// matched case insensitive, lets fix the path
-		pat := fastroute.Pattern(try)
-		params := fastroute.Parameters(try)
-		var fixed []string
-		var nextParam int
-		for _, segment := range strings.Split(pat, "/") {
-			if strings.IndexAny(segment, ":*") != -1 {
-				fixed = append(fixed, params[nextParam].Value)
-				nextParam++
+		attempts := []string{p}
+		if m.RedirectTrailingSlash {
+			if p[len(p)-1] == '/' {
+				attempts = append(attempts, p[:len(p)-1]) // without trailing slash
 			} else {
-				fixed = append(fixed, segment)
+				attempts = append(attempts, p+"/") // with trailing slash
 			}
 		}
-		p = strings.Join(fixed, "/")
-		fastroute.Recycle(try)
 
-		return redirect(p)
+		try, _ := http.NewRequest(req.Method, "/", nil) // make request for all attempts
+		for _, attempt := range attempts {
+			try.URL.Path = attempt
+			if h := rt.Match(try); h != nil {
+				// matched, resolve fixed path and redirect
+				pat, params := fastroute.Pattern(try), fastroute.Parameters(try)
+				var fixed []string
+				var nextParam int
+				for _, segment := range strings.Split(pat, "/") {
+					if strings.IndexAny(segment, ":*") != -1 {
+						fixed = append(fixed, params[nextParam].Value)
+						nextParam++
+					} else {
+						fixed = append(fixed, segment)
+					}
+				}
+				defer fastroute.Recycle(try)
+				return redirect(strings.Join(fixed, "/"))
+			}
+		}
+		return nil // could not fix path
 	})
 }
 
@@ -366,13 +355,13 @@ func (m *Mux) optimize() map[string]fastroute.Router {
 
 	for method, pack := range m.routes {
 		static := make(map[string]http.Handler)
-		var dynamic []fastroute.Router
+		var named []fastroute.Router
 
 		for _, route := range pack {
 			if idx := strings.IndexAny(route.path, ":*"); idx == -1 {
 				static[route.path] = route.h
 			} else {
-				dynamic = append(dynamic, fastroute.Route(route.path, route.h))
+				named = append(named, fastroute.Route(route.path, route.h))
 			}
 		}
 
@@ -384,116 +373,11 @@ func (m *Mux) optimize() map[string]fastroute.Router {
 			routers = append(routers, staticRouter)
 		}
 
-		if len(dynamic) > 0 {
-			routers = append(routers, fastroute.New(dynamic...))
+		if len(named) > 0 {
+			routers = append(routers, fastroute.New(named...))
 		}
 
 		routes[method] = fastroute.New(routers...)
 	}
 	return routes
-}
-
-// taken from https://github.com/julienschmidt/httprouter/blob/master/path.go
-func cleanPath(p string) string {
-	// Turn empty string into "/"
-	if p == "" {
-		return "/"
-	}
-
-	n := len(p)
-	var buf []byte
-
-	// Invariants:
-	//      reading from path; r is index of next byte to process.
-	//      writing to buf; w is index of next byte to write.
-
-	// path must start with '/'
-	r := 1
-	w := 1
-
-	if p[0] != '/' {
-		r = 0
-		buf = make([]byte, n+1)
-		buf[0] = '/'
-	}
-
-	trailing := n > 2 && p[n-1] == '/'
-
-	// A bit more clunky without a 'lazybuf' like the path package, but the loop
-	// gets completely inlined (bufApp). So in contrast to the path package this
-	// loop has no expensive function calls (except 1x make)
-
-	for r < n {
-		switch {
-		case p[r] == '/':
-			// empty path element, trailing slash is added after the end
-			r++
-
-		case p[r] == '.' && r+1 == n:
-			trailing = true
-			r++
-
-		case p[r] == '.' && p[r+1] == '/':
-			// . element
-			r++
-
-		case p[r] == '.' && p[r+1] == '.' && (r+2 == n || p[r+2] == '/'):
-			// .. element: remove to last /
-			r += 2
-
-			if w > 1 {
-				// can backtrack
-				w--
-
-				if buf == nil {
-					for w > 1 && p[w] != '/' {
-						w--
-					}
-				} else {
-					for w > 1 && buf[w] != '/' {
-						w--
-					}
-				}
-			}
-
-		default:
-			// real path element.
-			// add slash if needed
-			if w > 1 {
-				bufApp(&buf, p, w, '/')
-				w++
-			}
-
-			// copy element
-			for r < n && p[r] != '/' {
-				bufApp(&buf, p, w, p[r])
-				w++
-				r++
-			}
-		}
-	}
-
-	// re-append trailing slash
-	if trailing && w > 1 {
-		bufApp(&buf, p, w, '/')
-		w++
-	}
-
-	if buf == nil {
-		return p[:w]
-	}
-	return string(buf[:w])
-}
-
-// internal helper to lazily create a buffer if necessary
-func bufApp(buf *[]byte, s string, w int, c byte) {
-	if *buf == nil {
-		if s[w] == c {
-			return
-		}
-
-		*buf = make([]byte, len(s))
-		copy(*buf, s[:w])
-	}
-	(*buf)[w] = c
 }

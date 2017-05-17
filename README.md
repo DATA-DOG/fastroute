@@ -4,7 +4,7 @@
 
 # FastRoute
 
-Insanely **fast** and **robust** http router for golang. Only **~150**
+Insanely **fast** and **robust** http router for golang. Only **200**
 lines of code. Uses standard **http.Handler** and has no limitations
 to path matching compared to routers derived from **HttpRouter**.
 
@@ -163,10 +163,12 @@ This way, it is possible to extend **fastroute.Router** with various middleware,
 - It is also a good place to chain **http.Handler** with some middleware, like request
 timing, logging and so on..
 
-### Trailing slash redirects and case insensitive match
+### Trailing slash or fixed path redirects
 
 In cases when your API faces public, it might be a good idea to redirect with corrected
 request URL.
+
+This would even fix trailing slash, case mismatch and cleaned path all at once.
 
 ``` go
 package main
@@ -174,6 +176,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/DATA-DOG/fastroute"
@@ -184,39 +187,55 @@ func main() {
 		fmt.Fprintln(w, req.URL.Path, fastroute.Parameters(req))
 	})
 
-	// lets say our API strategy is to have all paths
-	// lowercased with a trailing slash
-	routes := fastroute.New(
-		fastroute.Route("/status/", handler),
-		fastroute.Route("/users/:id/", handler),
-		fastroute.Route("/users/:id/roles/", handler),
+	router := fastroute.New(
+		fastroute.Route("/status", handler),
+		fastroute.Route("/users/:id", handler),
+		fastroute.Route("/users/:id/roles/", handler), // one with trailing slash
 	)
 
-	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if h := routes.Match(req); h != nil {
+	http.ListenAndServe(":8080", redirectTrailingOrFixedPath(router))
+
+	// requesting: http://localhost:8080/Users/5/Roles
+	// redirects: http://localhost:8080/users/5/roles/
+}
+
+func redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
+	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		if h := router.Match(req); h != nil {
 			return h // has matched, no need for fixing
 		}
 
-		p := req.URL.Path
-		if p[len(p)-1] != '/' {
-			p += "/" // had no trailing slash
+		p := path.Clean(req.URL.Path) // first clean path
+		attempts := []string{p}       // first variant with cleaned path
+		if p[len(p)-1] == '/' {
+			attempts = append(attempts, p[:len(p)-1]) // without trailing slash
+		} else {
+			attempts = append(attempts, p+"/") // with trailing slash
 		}
 
-		// clone request for testing
-		r := new(http.Request)
-		*r = *req
-		r.URL.Path = p
-
-		if h := routes.Match(r); h != nil {
-			fastroute.Recycle(r)
-			return redirect(p) // fixed trailing slash
+		ci := fastroute.ComparesPathWith(router, strings.EqualFold) // case insensitive matching
+		try, _ := http.NewRequest(req.Method, "/", nil)             // make request for all attempts
+		for _, attempt := range attempts {
+			try.URL.Path = attempt
+			if h := ci.Match(try); h != nil {
+				// matched, resolve fixed path and redirect
+				pat, params := fastroute.Pattern(try), fastroute.Parameters(try)
+				var fixed []string
+				var nextParam int
+				for _, segment := range strings.Split(pat, "/") {
+					if strings.IndexAny(segment, ":*") != -1 {
+						fixed = append(fixed, params[nextParam].Value)
+						nextParam++
+					} else {
+						fixed = append(fixed, segment)
+					}
+				}
+				defer fastroute.Recycle(try)
+				return redirect(strings.Join(fixed, "/"))
+			}
 		}
-
-		return nil
+		return nil // could not fix path
 	})
-
-	fastroute.CompareFunc = strings.EqualFold // case insensitive matching
-	http.ListenAndServe(":8080", router)
 }
 
 func redirect(fixedPath string) http.Handler {
