@@ -1,8 +1,8 @@
 // package mux is full featured http router
 // using fastroute as core robust router, but enabling
-// all usual features including:
+// all usual features like:
 //
-//  - route optimization, for faster lookups
+//  - request method based routes
 //  - trailing slash and fixed path redirects
 //  - auto OPTIONS replies
 //  - method not found handling
@@ -54,7 +54,6 @@
 package mux
 
 import (
-	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -108,26 +107,19 @@ func New() *Mux {
 
 // Method registers handler for given request method
 // and path.
-//
-// Depending on ForceTrailingSlash, slash is either
-// appended or removed at the end of the path.
 func (m *Mux) Method(method, path string, handler interface{}) {
+	m.Route(strings.ToUpper(method), fastroute.Route(path, handler))
+}
+
+// Method registers route for given request method.
+// This might be useful when combining the routes or
+// match them differently, like for example a
+// map[string]http.Handler to match static routes
+func (m *Mux) Route(method string, route fastroute.Router) {
 	if nil == m.routes {
 		m.routes = make(map[string]fastroute.Router)
 	}
 
-	var h http.Handler = nil
-	switch t := handler.(type) {
-	case http.HandlerFunc:
-		h = t
-	case func(http.ResponseWriter, *http.Request):
-		h = http.HandlerFunc(t)
-	default:
-		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
-	}
-
-	method = strings.ToUpper(method)
-	route := fastroute.Route(path, h)
 	if router, ok := m.routes[method]; ok {
 		m.routes[method] = fastroute.New(router, route) // chain new route
 	} else {
@@ -205,7 +197,7 @@ func (m *Mux) Server() fastroute.Router {
 		return nil
 	})
 
-	return fastroute.New(
+	return fastroute.New( // combines routers matched in given order
 		router, // maybe match configured routes
 		m.redirectTrailingOrFixedPath(router),          // maybe trailing slash or path fix
 		fastroute.RouterFunc(m.autoOptions),            // maybe options
@@ -291,9 +283,13 @@ func (m *Mux) handleMethodNotAllowed(req *http.Request) http.Handler {
 	return nil
 }
 
-func (m *Mux) allowed(req *http.Request) []string {
-	allow := make(map[string]bool)
-	allow["OPTIONS"] = true
+func (m *Mux) allowed(req *http.Request) (allows []string) {
+	added := make(map[string]bool)
+	allow := func(m string) {
+		if _, ok := added[m]; !ok {
+			allows, added[m] = append(allows, m), true
+		}
+	}
 	for method, router := range m.routes {
 		// Skip the requested method - we already tried this one
 		if method == req.Method {
@@ -302,31 +298,27 @@ func (m *Mux) allowed(req *http.Request) []string {
 
 		// server wide
 		if req.URL.Path == "*" {
-			allow[method] = true
+			allow(method)
 			continue
 		}
 
 		// specific path
 		if h := router.Match(req); h != nil {
 			fastroute.Recycle(req)
-			allow[method] = true
+			allow(method)
 		}
 	}
 
-	var allows []string
-	if len(allow) == 1 {
-		return allows
+	if len(allows) > 0 && m.AutoOptionsReply {
+		allow("OPTIONS")
 	}
 
-	for method := range allow {
-		allows = append(allows, method)
-	}
-	return allows
+	return
 }
 
 func redirect(fixedPath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		req.URL.Path = fixedPath
-		http.Redirect(w, req, req.URL.String(), http.StatusPermanentRedirect)
+		http.Redirect(w, req, req.URL.String(), http.StatusMovedPermanently)
 	})
 }

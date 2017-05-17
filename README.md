@@ -4,7 +4,7 @@
 
 # FastRoute
 
-Insanely **fast** and **robust** http router for golang. Only **200**
+Insanely **small**, **robust** and **fast** http router for `golang`. Only **200**
 lines of code. Uses standard **http.Handler** and has no limitations
 to path matching compared to routers derived from **HttpRouter**.
 
@@ -62,28 +62,15 @@ customized routers.
 
 While all **HttpRouter** based implementations suffer from limitations such as
 disallowing routes like **/user/new** and **/user/:user** together, due to
-their tree structured nature. Or having custom **Handles** not compatible with
+their tree structured nature. Or having custom **Handlers** not compatible with
 **http.Handler**. This router has none of these limitations.
-
-By default this router does not provide:
-
-1. Route based on HTTP method. Because it is simple to manage that in
-   handler, middleware or custom router implementation.
-2. Trailing slash redirects. Because that is simple to add a middleware
-   for your preferred choice, before any route is looked up. You know
-   and usually follow the same trailing slash strategy.
-3. Fixed path redirects, you rarely need this for internal APIs or micro
-   services. But if you do, again you follow your rules like: only lowercase,
-   camel case. Then you may add a simple middleware to detect such anomalies
-   and make a fixed path redirect.
-4. All the panic recovery, not found, method not found, options or other middleware.
-   That is up to your imagination, if such features are needed at all.
 
 ## Guides
 
 Here are some common usage guidelines:
 You may also have a look at [mux](https://github.com/DATA-DOG/fastroute/tree/master/mux/mux.go) package,
-which is an example of full featured router implementation using **fastroute**
+which is an example of full featured router implementation using **fastroute**. It replicates
+all features **HttpRouter** provides.
 
 ### Combining static routes
 
@@ -246,9 +233,8 @@ func redirect(fixedPath string) http.Handler {
 }
 ```
 
-In cases when you know that all your routes are lowercase and parameters are only
-integers. Then you may just lowercase the fixed path and redirect instead of
-case insensitive matching.
+In cases when you know that all your routes are lowercase. Then you may just
+lowercase the fixed path and redirect instead of running case insensitive matching.
 
 ## Benchmarks
 
@@ -339,13 +325,19 @@ GorillaMux_StaticAll      |    1000   | 1536755 ns/op  | 115648 B/op |   1578 al
 HttpRouter_StaticAll      |  200000   |   10824 ns/op  |      0 B/op |      0 allocs/op |
 Pat_StaticAll             |    1000   | 1597577 ns/op  | 533904 B/op |  11123 allocs/op |
 
-We can see that **FastRoute** outperforms fastest routers in some of the cases. In general it always boils
-down to targeted case implementation.
+We can see that **FastRoute** outperforms fastest routers in some of the cases:
+- Number of routes is small.
+- Routes are static and served from a map.
+- There are many named parameters.
 
 **FastRoute** was easily adapted for this benchmark. Where static routes are served, nothing
 is better or faster than a static path **map**. **FastRoute** allows to build any kind of router,
 depending on an use case. By default it targets smaller number of routes and the weakest
 link is large set of dynamic routes, because these are matched one by one in order.
+
+It always boils down to targeted case implementation. It is a general purpose router of
+**200** lines of source code in one file, which can be copied, understood and adapted in
+separate projects.
 
 ## Contributions
 
