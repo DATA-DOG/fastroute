@@ -24,27 +24,70 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+	"strings"
 
-	"github.com/DATA-DOG/fastroute"
+	fr "github.com/DATA-DOG/fastroute"
 )
 
-func Index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Welcome!\n")
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
 }
 
-func Hello(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "hello, %s!\n", fastroute.Parameters(r).ByName("name"))
+var routes = map[string]fr.Router{
+	"GET": fr.Chain(
+		fr.New("/", handler),
+		fr.New("/hello/:name/:surname", handler),
+		fr.New("/hello/:name", handler),
+	),
+	"POST": fr.Chain(
+		fr.New("/users", handler),
+		fr.New("/users/:id", handler),
+	),
 }
+
+// serves routes by request method
+var serveByMethod = fr.RouterFunc(func(req *http.Request) http.Handler {
+	return routes[req.Method] // fastroute.Router is also http.Handler
+})
+
+// handles method not found + adds allowed header
+var application = fr.RouterFunc(func(req *http.Request) http.Handler {
+	if h := serveByMethod.Route(req); h != nil {
+		return h // routed and can be served
+	}
+
+	var allows []string
+	for method, routes := range routes {
+		if h := routes.Route(req); h != nil {
+			allows = append(allows, method)
+			fr.Recycle(req) // we will not serve it, need to recycle
+		}
+	}
+
+	if len(allows) == 0 {
+		return nil
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Allow", strings.Join(allows, ","))
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprintln(w, http.StatusText(http.StatusMethodNotAllowed))
+	})
+})
 
 func main() {
-	log.Fatal(http.ListenAndServe(":8080", fastroute.Chain(
-		fastroute.New("/", Index),
-		fastroute.New("/hello/:name", Hello),
-	)))
+	http.ListenAndServe(":8080", application)
 }
 ```
+
+Looks like we made a framework only with static properties.
 
 In overall, it is **not all in one** router, it is the same **http.Handler**
 with do it yourself style, but with **zero allocations** path pattern matching.

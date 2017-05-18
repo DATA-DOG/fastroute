@@ -168,14 +168,21 @@ type Router interface {
 // Router that calls f.
 type RouterFunc func(*http.Request) http.Handler
 
-// Route calls f(r).
-func (rf RouterFunc) Route(r *http.Request) http.Handler {
-	return rf(r)
+// Route calls f(req) to return http.Handler.
+// In case if it was Router, delegates that call
+// to re-route the http.Request
+func (f RouterFunc) Route(req *http.Request) http.Handler {
+	h := f(req)
+	if r, ok := h.(Router); ok {
+		return r.Route(req)
+	}
+	return h
 }
 
-// ServeHTTP calls f(w, r).
-func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h := rf(r); h != nil {
+// ServeHTTP calls f(req) to get http.Handler and serve it,
+// or fallback to http.NotFound.
+func (f RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h := f(r); h != nil {
 		h.ServeHTTP(w, r)
 	} else {
 		http.NotFound(w, r)
