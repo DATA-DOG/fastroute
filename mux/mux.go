@@ -20,6 +20,7 @@
 //      "fmt"
 //      "log"
 //      "net/http"
+//      "github.com/DATA-DOG/fastroute"
 //      "github.com/DATA-DOG/fastroute/mux"
 //  )
 //
@@ -108,7 +109,7 @@ func New() *Mux {
 // Method registers handler for given request method
 // and path.
 func (m *Mux) Method(method, path string, handler interface{}) {
-	m.Route(strings.ToUpper(method), fastroute.Route(path, handler))
+	m.Route(strings.ToUpper(method), fastroute.New(path, handler))
 }
 
 // Method registers route for given request method.
@@ -121,7 +122,7 @@ func (m *Mux) Route(method string, route fastroute.Router) {
 	}
 
 	if router, ok := m.routes[method]; ok {
-		m.routes[method] = fastroute.New(router, route) // chain new route
+		m.routes[method] = fastroute.Chain(router, route) // chain new route
 	} else {
 		m.routes[method] = route
 	}
@@ -189,7 +190,7 @@ func (m *Mux) Files(path string, root http.FileSystem) {
 func (m *Mux) Server() fastroute.Router {
 	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		if router := m.routes[req.Method]; router != nil {
-			if h := router.Match(req); h != nil {
+			if h := router.Route(req); h != nil {
 				return h
 			}
 		}
@@ -197,7 +198,7 @@ func (m *Mux) Server() fastroute.Router {
 		return nil
 	})
 
-	return fastroute.New( // combines routers matched in given order
+	return fastroute.Chain( // combines routers matched in given order
 		router, // maybe match configured routes
 		m.redirectTrailingOrFixedPath(router),          // maybe trailing slash or path fix
 		fastroute.RouterFunc(m.autoOptions),            // maybe options
@@ -220,7 +221,7 @@ func (m *Mux) redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Rou
 		rt := router
 		if m.RedirectFixedPath {
 			p = path.Clean(req.URL.Path)
-			rt = fastroute.ComparesPathWith(router, strings.EqualFold) // case insensitive matching
+			rt = fastroute.CaseInsensitive(router)
 		}
 
 		attempts := []string{p}
@@ -235,7 +236,7 @@ func (m *Mux) redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Rou
 		try, _ := http.NewRequest(req.Method, "/", nil) // make request for all attempts
 		for _, attempt := range attempts {
 			try.URL.Path = attempt
-			if h := rt.Match(try); h != nil {
+			if h := rt.Route(try); h != nil {
 				// matched, resolve fixed path and redirect
 				pat, params := fastroute.Pattern(try), fastroute.Parameters(try)
 				var fixed []string
@@ -303,7 +304,7 @@ func (m *Mux) allowed(req *http.Request) (allows []string) {
 		}
 
 		// specific path
-		if h := router.Match(req); h != nil {
+		if h := router.Route(req); h != nil {
 			fastroute.Recycle(req)
 			allow(method)
 		}

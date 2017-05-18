@@ -5,12 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 )
 
 func TestShouldFallbackToNotFoundHandler(t *testing.T) {
-	router := Route("/xx", func(w http.ResponseWriter, r *http.Request) {
+	router := New("/xx", func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("not expected invocation")
 	})
 	req, err := http.NewRequest("GET", "/any", nil)
@@ -101,9 +100,9 @@ func TestStaticRouteMatcher(t *testing.T) {
 		"/users/hello/bin":  false,
 		"/users/hello/bin/": true,
 	}
-	router := New(
-		Route("/users/hello/bin/", http.NotFoundHandler()),
-		Route("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
+	router := Chain(
+		New("/users/hello/bin/", http.NotFoundHandler()),
+		New("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
 	)
 
 	for path, matched := range cases {
@@ -111,10 +110,10 @@ func TestStaticRouteMatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if matched && router.Match(req) == nil {
+		if matched && router.Route(req) == nil {
 			t.Fatalf("expected to match: %s", path)
 		}
-		if !matched && router.Match(req) != nil {
+		if !matched && router.Route(req) != nil {
 			t.Fatalf("did not expect to match: %s", path)
 		}
 
@@ -133,12 +132,12 @@ func TestStaticRouteMatcher(t *testing.T) {
 func TestCompareBy(t *testing.T) {
 	handler := http.NotFoundHandler()
 
-	router := New(
-		Route("/status", handler),
-		Route("/users/:id", handler),
-		Route("/users/:id/roles", handler),
+	router := Chain(
+		New("/status", handler),
+		New("/users/:id", handler),
+		New("/users/:id/roles", handler),
 	)
-	router = ComparesPathWith(router, strings.EqualFold)
+	router = CaseInsensitive(router)
 
 	cases := []string{
 		"/staTus",
@@ -155,7 +154,7 @@ func TestCompareBy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		h := router.Match(req)
+		h := router.Route(req)
 		Recycle(req)
 		if h == nil {
 			t.Errorf("expected: %s to match", path)
@@ -167,13 +166,13 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "OK")
 	})
-	router := New(
-		Route("/a/:b/c", handler),
-		Route("/category/:cid/product/*rest", handler),
-		Route("/users/:id/:bid/", handler),
-		Route("/applications/:client_id/tokens", handler),
-		Route("/repos/:owner/:repo/issues/:number/labels/:name", handler),
-		Route("/files/*filepath", handler),
+	router := Chain(
+		New("/a/:b/c", handler),
+		New("/category/:cid/product/*rest", handler),
+		New("/users/:id/:bid/", handler),
+		New("/applications/:client_id/tokens", handler),
+		New("/repos/:owner/:repo/issues/:number/labels/:name", handler),
+		New("/files/*filepath", handler),
 	)
 
 	cases := []struct {
@@ -204,7 +203,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h := router.Match(req)
+		h := router.Route(req)
 		if c.match && h == nil {
 			t.Fatalf("expected to match: %s", c.path)
 		}
@@ -242,20 +241,6 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	}
 }
 
-// func TestCaseFix(t *testing.T) {
-// 	handler := http.NotFoundHandler()
-// 	router := Route("/users/:username/roles", handler)
-
-// 	req, _ := http.NewRequest("GET", "http://127.0.0.1/useRs/gedi/rOles")
-
-// 	before := fastroute.CompareFunc
-// 	fastroute.CompareFunc = strings.EqualFold
-// 	h := router.Match(req)
-// 	fastroute.CompareFunc = before
-
-// 	params := Parameters(req)
-// }
-
 func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -266,13 +251,13 @@ func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T)
 		}
 	}()
 
-	Route(pattern, h)
+	New(pattern, h)
 
 	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
 }
 
 func Benchmark_1Param(b *testing.B) {
-	router := Route("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
+	router := New("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(Parameters(r).ByName("id")))
 	})
 
@@ -285,7 +270,7 @@ func Benchmark_1Param(b *testing.B) {
 }
 
 func Benchmark_Static(b *testing.B) {
-	router := Route("/static/path/pattern", func(w http.ResponseWriter, r *http.Request) {
+	router := New("/static/path/pattern", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})
 
@@ -302,12 +287,12 @@ func Benchmark_5Routes(b *testing.B) {
 		w.Write([]byte(Parameters(r).ByName("id")))
 	}
 
-	router := New(
-		Route("/test/:id", handler),
-		Route("/puff/path/:id", handler),
-		Route("/home/user/:id", handler),
-		Route("/home/jey/:id/:cat", handler),
-		Route("/base/:id/user", handler),
+	router := Chain(
+		New("/test/:id", handler),
+		New("/puff/path/:id", handler),
+		New("/home/user/:id", handler),
+		New("/home/jey/:id/:cat", handler),
+		New("/base/:id/user", handler),
 	)
 
 	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)

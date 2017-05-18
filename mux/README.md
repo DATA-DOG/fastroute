@@ -22,6 +22,7 @@ import (
     "fmt"
     "log"
     "net/http"
+    "github.com/DATA-DOG/fastroute"
     "github.com/DATA-DOG/fastroute/mux"
 )
 

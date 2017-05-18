@@ -20,9 +20,9 @@
 //  }
 //
 //  func main() {
-//      log.Fatal(http.ListenAndServe(":8080", fastroute.New(
-//          fastroute.Route("/", Index),
-//          fastroute.Route("/hello/:name", Hello),
+//      log.Fatal(http.ListenAndServe(":8080", fastroute.Chain(
+//          fastroute.New("/", Index),
+//          fastroute.New("/hello/:name", Hello),
 //      )))
 //  }
 //
@@ -102,7 +102,7 @@ func Pattern(req *http.Request) string {
 // Recycle resets named parameters
 // if they were assigned to the request.
 //
-// When using Router.Match(http.Request) func,
+// When using Router.Route(http.Request) func,
 // parameters will be flushed only if matched
 // http.Handler is served.
 //
@@ -139,17 +139,18 @@ func (ps Params) ByName(name string) string {
 }
 
 // Router interface is robust and nothing more than
-// http.Handler. It simply extends it with one extra method to Match
-// http.Handler from http.Request and that allows to chain it
-// until a handler is matched.
+// http.Handler. It simply extends it with one extra method -
+// Route in order to route http.Request to http.Handler.
+// This way allows to chain it until a handler is matched.
 //
-// Match func should return handler or nil.
+// Route func should return handler or nil.
 type Router interface {
 	http.Handler
 
-	// Match should return nil if request
-	// cannot be matched. When ServeHTTP is
-	// invoked and handler is nil, it will
+	// Route should route given request to
+	// the http.Handler. It may return nil if
+	// request cannot be matched. When ServeHTTP
+	// is invoked and handler is nil, it will
 	// serve http.NotFoundHandler
 	//
 	// Note, if the router is matched and it has
@@ -158,7 +159,7 @@ type Router interface {
 	// back to the pool. Otherwise you will leak
 	// parameters, which you can also salvage by
 	// calling Recycle on http.Request
-	Match(*http.Request) http.Handler
+	Route(*http.Request) http.Handler
 }
 
 // RouterFunc type is an adapter to allow the use of
@@ -167,8 +168,8 @@ type Router interface {
 // Router that calls f.
 type RouterFunc func(*http.Request) http.Handler
 
-// Match calls f(r).
-func (rf RouterFunc) Match(r *http.Request) http.Handler {
+// Route calls f(r).
+func (rf RouterFunc) Route(r *http.Request) http.Handler {
 	return rf(r)
 }
 
@@ -181,18 +182,18 @@ func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// New creates Router combined of given routes.
+// Chain creates Router combined of given routes.
 // It attempts to match all routes in order, the first
 // matched route serves the request.
 //
 // Users may sort routes the way he prefers, or add
 // dynamic sorting goroutine, which calculates order
 // based on hits.
-func New(routes ...Router) Router {
+func Chain(routes ...Router) Router {
 	return RouterFunc(func(r *http.Request) http.Handler {
 		var found http.Handler
 		for _, router := range routes {
-			if found = router.Match(r); found != nil {
+			if found = router.Route(r); found != nil {
 				break
 			}
 		}
@@ -200,7 +201,7 @@ func New(routes ...Router) Router {
 	})
 }
 
-// Route creates Router which attempts
+// New creates Router which attempts
 // to match given path to handler.
 //
 // Handler is a standard http.Handler which
@@ -215,7 +216,7 @@ func New(routes ...Router) Router {
 //
 // When dynamic path is matched, it must be served
 // in order to salvage allocated named parameters.
-func Route(path string, handler interface{}) Router {
+func New(path string, handler interface{}) Router {
 	p := "/" + strings.TrimLeft(path, "/")
 
 	var h http.Handler = nil
@@ -286,24 +287,24 @@ func Route(path string, handler interface{}) Router {
 	})
 }
 
-// ComparesPathWith allows to use custom static path segment
-// comparison func.
+// CaseInsensitive forces given router to match
+// path without case sensitivity.
 //
-// By default it uses case sensitive comparison, but
-// it can be overriden with for example strings.EqualFold
-// to have case insensitive match.
+// By default it uses case sensitive comparison.
 //
 // Note that, if application uses more than one router,
 // it might conflict when applied concurrently.
-func ComparesPathWith(router Router, cmp func(s1, s2 string) bool) Router {
+func CaseInsensitive(router Router) Router {
 	return RouterFunc(func(req *http.Request) http.Handler {
-		compareFunc = cmp
-		handler := router.Match(req)
+		compareFunc = strings.EqualFold
+		handler := router.Route(req)
 		compareFunc = caseSensitiveCompare
 		return handler
 	})
 }
 
+// matches pattern segments to an url
+// and pushes named parameters to ps
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, seg := range segments {
 		if lu := len(url); lu == 0 {
@@ -340,7 +341,7 @@ func caseSensitiveCompare(s1, s2 string) bool {
 }
 
 // compareFunc is used to compare static path
-// can be overriden by ComparesPathWith middleware
+// can be overriden by CaseInsensitive middleware
 var compareFunc func(string, string) bool = caseSensitiveCompare
 
 type parameters struct {

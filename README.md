@@ -11,9 +11,9 @@ to path matching compared to routers derived from **HttpRouter**.
 > Less is more
 
 **fastroute.Router** interface is robust and nothing more than
-**http.Handler**. It simply extends it with one extra method to Match
-**http.Handler** from **http.Request** and that allows to chain it
-until a handler is matched.
+**http.Handler**. It simply extends it with one extra method -
+**Route** in order to route **http.Request** to **http.Handler**.
+This way allows to chain it until a handler is matched.
 
 Apart from that **robust** interface **fastroute** adds a path
 pattern matching and named parameter support for flexibility
@@ -39,9 +39,9 @@ func Hello(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	log.Fatal(http.ListenAndServe(":8080", fastroute.New(
-		fastroute.Route("/", Index),
-		fastroute.Route("/hello/:name", Hello),
+	log.Fatal(http.ListenAndServe(":8080", fastroute.Chain(
+		fastroute.New("/", Index),
+		fastroute.New("/hello/:name", Hello),
 	)))
 }
 ```
@@ -100,12 +100,12 @@ func main() {
 		return static[req.URL.Path]
 	})
 
-	dynamicRoutes := fastroute.New(
-		fastroute.Route("/users/:id", handler),
-		fastroute.Route("/users/:id/roles", handler),
+	dynamicRoutes := fastroute.Chain(
+		fastroute.New("/users/:id", handler),
+		fastroute.New("/users/:id/roles", handler),
 	)
 
-	http.ListenAndServe(":8080", fastroute.New(staticRoutes, dynamicRoutes))
+	http.ListenAndServe(":8080", fastroute.Chain(staticRoutes, dynamicRoutes))
 }
 ```
 
@@ -130,12 +130,12 @@ func main() {
 		fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
 	})
 
-	router := fastroute.Route("/users/:id", func(w http.ResponseWriter, req *http.Request) {
+	router := fastroute.New("/users/:id", func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintln(w, "user:", fastroute.Parameters(req).ByName("id"))
 	})
 
 	http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if h := router.Match(req); h != nil {
+		if h := router.Route(req); h != nil {
 			return h
 		}
 		return notFoundHandler
@@ -147,8 +147,6 @@ This way, it is possible to extend **fastroute.Router** with various middleware,
 - Method not found handler.
 - Fixed path or trailing slash redirects. Based on your chosen route layout.
 - Options or **CORS**.
-- It is also a good place to chain **http.Handler** with some middleware, like request
-timing, logging and so on..
 
 ### Trailing slash or fixed path redirects
 
@@ -174,10 +172,10 @@ func main() {
 		fmt.Fprintln(w, req.URL.Path, fastroute.Parameters(req))
 	})
 
-	router := fastroute.New(
-		fastroute.Route("/status", handler),
-		fastroute.Route("/users/:id", handler),
-		fastroute.Route("/users/:id/roles/", handler), // one with trailing slash
+	router := fastroute.Chain(
+		fastroute.New("/status", handler),
+		fastroute.New("/users/:id", handler),
+		fastroute.New("/users/:id/roles/", handler), // one with trailing slash
 	)
 
 	http.ListenAndServe(":8080", redirectTrailingOrFixedPath(router))
@@ -188,7 +186,7 @@ func main() {
 
 func redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
 	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if h := router.Match(req); h != nil {
+		if h := router.Route(req); h != nil {
 			return h // has matched, no need for fixing
 		}
 
@@ -200,11 +198,11 @@ func redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
 			attempts = append(attempts, p+"/") // with trailing slash
 		}
 
-		ci := fastroute.ComparesPathWith(router, strings.EqualFold) // case insensitive matching
-		try, _ := http.NewRequest(req.Method, "/", nil)             // make request for all attempts
+		ci := fastroute.CaseInsensitive(router)
+		try, _ := http.NewRequest(req.Method, "/", nil) // make request for all attempts
 		for _, attempt := range attempts {
 			try.URL.Path = attempt
-			if h := ci.Match(try); h != nil {
+			if h := ci.Route(try); h != nil {
 				// matched, resolve fixed path and redirect
 				pat, params := fastroute.Pattern(try), fastroute.Parameters(try)
 				var fixed []string
@@ -217,7 +215,7 @@ func redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
 						fixed = append(fixed, segment)
 					}
 				}
-				defer fastroute.Recycle(try)
+				fastroute.Recycle(try)
 				return redirect(strings.Join(fixed, "/"))
 			}
 		}
