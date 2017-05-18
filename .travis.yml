@@ -12,8 +12,8 @@ go:
 go_import_path: github.com/DATA-DOG/fastroute
 
 script:
-  - go vet
-  - go fmt
+  - go vet ./...
+  - go fmt ./...
   - go test -v -race -bench=. -coverprofile=coverage.txt -covermode=atomic
 
 after_success:
