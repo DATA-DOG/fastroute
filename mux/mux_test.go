@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +37,6 @@ func TestServeHTTP(t *testing.T) {
 
 	mux.assertPatterns(t, []routerPattern{
 		{"OPTIONS", "/a/b/", 200, map[string]string{"Allow": "GET,OPTIONS"}},                // allowed methods
-		{"OPTIONS", "*", 200, map[string]string{"Allow": "GET,POST,OPTIONS"}},               // allowed methods
 		{"GET", "/a/b", 301, map[string]string{"Location": "/a/b/"}},                        // has to be with trailing
 		{"GET", "/a/b/", 200, map[string]string{}},                                          // exact match with trailing
 		{"POST", "/a/b/", 405, map[string]string{"Allow": "GET,OPTIONS", "X-TESTED": "OK"}}, // method not allowed
@@ -70,6 +70,33 @@ func TestServeHTTP(t *testing.T) {
 		{"GET", "/unknown", 404, map[string]string{"X-TESTED": "OK"}},  // custom not found
 		{"OPTIONS", "/a/b/", 404, map[string]string{"X-TESTED": "OK"}}, // not allowed since disabled
 	})
+
+	mux.RedirectTrailingSlash = true
+	mux.RedirectFixedPath = true
+	mux.assertPatterns(t, []routerPattern{
+		{"GET", "/catch", 301, map[string]string{"Location": "/catch/"}},
+	})
+}
+
+func TestOptionsForAllAvailableMethods(t *testing.T) {
+	mux := New()
+	mux.GET("/", http.NotFoundHandler())
+	mux.POST("/users", http.NotFoundHandler())
+	mux.PUT("/users", http.NotFoundHandler())
+
+	req, _ := http.NewRequest("OPTIONS", "*", nil)
+	w := httptest.NewRecorder()
+	mux.Server().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatal("expected 200 code")
+	}
+
+	for _, allow := range []string{"GET", "POST", "PUT", "OPTIONS"} {
+		if strings.Index(w.Header().Get("Allow"), allow) == -1 {
+			t.Fatalf("expected to allow '%s', but it did not", allow)
+		}
+	}
 }
 
 func TestFileServer(t *testing.T) {

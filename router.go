@@ -182,40 +182,41 @@ func (rf RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Chain creates Router combined of given routes.
-// It attempts to match all routes in order, the first
-// matched route serves the request.
+// Chain routes into single Router. Tries all given
+// routes in order, until the first one, which is
+// able to Route the request.
 //
-// Users may sort routes the way he prefers, or add
-// dynamic sorting goroutine, which calculates order
+// Users may sort routes on their preference, or even
+// add hit counting sorting goroutine, which calculates order
 // based on hits.
 func Chain(routes ...Router) Router {
-	return RouterFunc(func(r *http.Request) http.Handler {
-		var found http.Handler
+	return RouterFunc(func(req *http.Request) http.Handler {
 		for _, router := range routes {
-			if found = router.Route(r); found != nil {
-				break
+			if handler := router.Route(req); handler != nil {
+				return handler
 			}
 		}
-		return found
+		return nil
 	})
 }
 
 // New creates Router which attempts
-// to match given path to handler.
+// to route the request by matching path.
 //
 // Handler is a standard http.Handler which
 // may be accepted in the following formats:
 //  http.Handler
 //  func(http.ResponseWriter, *http.Request)
 //
-// Static paths will be simply matched to
-// the request URL. While paths having named
-// parameters will be matched by segment. And
-// bind matched named parameters to http.Request.
+// Static paths will be simply compared with
+// requested path. While paths having named
+// parameters will be matched by each path segment.
+// And bind named parameters to http.Request.
 //
-// When dynamic path is matched, it must be served
-// in order to salvage allocated named parameters.
+// When the request is routed, it must be served
+// or recycled in order to salvage allocated named
+// parameters back to the sync.Pool, which dynamically
+// expands or shrinks based on concurrency.
 func New(path string, handler interface{}) Router {
 	p := "/" + strings.TrimLeft(path, "/")
 

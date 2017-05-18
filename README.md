@@ -72,6 +72,53 @@ You may also have a look at [mux](https://github.com/DATA-DOG/fastroute/tree/mas
 which is an example of full featured router implementation using **fastroute**. It replicates
 all features **HttpRouter** provides.
 
+### Matching by request method
+
+Seems like you do not need a framework for it.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	fr "github.com/DATA-DOG/fastroute"
+)
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
+}
+
+func main() {
+	routes := make(map[string]fr.Router)
+
+	// can be chained on every new route dynamically
+	routes["GET"] = fr.New("/", handler)
+	routes["GET"] = fr.Chain(routes["GET"], fr.New("/hello/:name", handler))
+	routes["GET"] = fr.Chain(routes["GET"], fr.New("/health", handler))
+
+	// can be nicely combined manually
+	routes["POST"] = fr.Chain(
+		fr.New("/users", handler),
+		fr.New("/users/:id", handler),
+	)
+
+	// match by method
+	router := fr.RouterFunc(func(req *http.Request) http.Handler {
+		return routes[req.Method] // fastroute.Router is also http.Handler
+	})
+
+	http.ListenAndServe(":8080", router)
+}
+```
+
 ### Combining static routes
 
 The best and fastest way to match static routes - is to have a **map** of path -> handler pairs.

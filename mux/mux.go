@@ -1,11 +1,12 @@
-// package mux is full featured http router
-// using fastroute as core robust router, but enabling
-// all usual features like:
+// Package mux is full featured http router
+// using fastroute at core. but enabling
+// all usual request routing features.
 //
-//  - request method based routes
-//  - trailing slash and fixed path redirects
-//  - auto OPTIONS replies
-//  - method not found handling
+//  - Request method based routes.
+//  - Trailing slash and fixed path redirects.
+//  - Auto OPTIONS replies.
+//  - Method not found handling.
+//  - Has no tree related route matching limitations.
 //
 // This package is just an example for fastroute implementation,
 // and will not be maintained to match all possible use
