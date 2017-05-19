@@ -25,6 +25,39 @@ func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 	}
 }
 
+func TestShouldRouteRouterAsHandler(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	}
+
+	routes := map[string]Router{
+		"GET":  New("/users", handler),
+		"POST": New("/users/:id", handler),
+	}
+
+	router := RouterFunc(func(req *http.Request) http.Handler {
+		return routes[req.Method] // fastroute.Router is also http.Handler
+	})
+
+	app := Chain(router, New("/any", handler))
+
+	req, _ := http.NewRequest("GET", "/any", nil)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
+
+	req, _ = http.NewRequest("GET", "/users/1", nil)
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
+}
+
 func TestEmptyRequestParameters(t *testing.T) {
 	req, err := http.NewRequest("GET", "/any", nil)
 	if err != nil {

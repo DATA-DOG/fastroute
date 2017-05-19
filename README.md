@@ -25,20 +25,9 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"strings"
 
 	fr "github.com/DATA-DOG/fastroute"
 )
-
-func handler(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(w, fmt.Sprintf(
-		`%s "%s", pattern: "%s", parameters: "%v"`,
-		req.Method,
-		req.URL.Path,
-		fr.Pattern(req),
-		fr.Parameters(req),
-	))
-}
 
 var routes = map[string]fr.Router{
 	"GET": fr.Chain(
@@ -52,42 +41,24 @@ var routes = map[string]fr.Router{
 	),
 }
 
-// serves routes by request method
-var serveByMethod = fr.RouterFunc(func(req *http.Request) http.Handler {
+var router = fr.RouterFunc(func(req *http.Request) http.Handler {
 	return routes[req.Method] // fastroute.Router is also http.Handler
 })
 
-// handles method not found + adds allowed header
-var application = fr.RouterFunc(func(req *http.Request) http.Handler {
-	if h := serveByMethod.Route(req); h != nil {
-		return h // routed and can be served
-	}
-
-	var allows []string
-	for method, routes := range routes {
-		if h := routes.Route(req); h != nil {
-			allows = append(allows, method)
-			fr.Recycle(req) // we will not serve it, need to recycle
-		}
-	}
-
-	if len(allows) == 0 {
-		return nil
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Allow", strings.Join(allows, ","))
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		fmt.Fprintln(w, http.StatusText(http.StatusMethodNotAllowed))
-	})
-})
-
 func main() {
-	http.ListenAndServe(":8080", application)
+	http.ListenAndServe(":8080", router)
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
 }
 ```
-
-Looks like we made a framework only with static properties.
 
 In overall, it is **not all in one** router, it is the same **http.Handler**
 with do it yourself style, but with **zero allocations** path pattern matching.
@@ -160,6 +131,85 @@ func main() {
 
 	http.ListenAndServe(":8080", router)
 }
+```
+
+### Method not found support
+
+**Fastroute** provides way to check whether request can be served, not only
+serve it. Though, the parameters then must be recycled in order to prevent
+leaking. When a routed request is served, it automatically recycles.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	fr "github.com/DATA-DOG/fastroute"
+)
+
+var routes = map[string]fr.Router{
+	"GET":    fr.New("/users", handler),
+	"POST":   fr.New("/users/:id", handler),
+	"PUT":    fr.New("/users/:id", handler),
+	"DELETE": fr.New("/users/:id", handler),
+}
+
+var router = fr.RouterFunc(func(req *http.Request) http.Handler {
+	return routes[req.Method] // fastroute.Router is also http.Handler
+})
+
+var app = fr.RouterFunc(func(req *http.Request) http.Handler {
+	if h := router.Route(req); h != nil {
+		return h // routed and can be served
+	}
+
+	var allows []string
+	for method, routes := range routes {
+		if h := routes.Route(req); h != nil {
+			allows = append(allows, method)
+			fr.Recycle(req) // we will not serve it, need to recycle
+		}
+	}
+
+	if len(allows) == 0 {
+		return nil
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Allow", strings.Join(allows, ","))
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprintln(w, http.StatusText(http.StatusMethodNotAllowed))
+	})
+})
+
+func main() {
+	http.ListenAndServe(":8080", app)
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
+}
+```
+
+If we make a request: `curl -i http://localhost:8080/users/1`, we will get:
+
+```
+HTTP/1.1 405 Method Not Allowed
+Allow: PUT,DELETE,POST
+Date: Fri, 19 May 2017 06:09:56 GMT
+Content-Length: 19
+Content-Type: text/plain; charset=utf-8
+
+Method Not Allowed
 ```
 
 ### Combining static routes
