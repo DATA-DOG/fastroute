@@ -126,6 +126,8 @@ func TestRoutePatternValidation(t *testing.T) {
 		http.NotFoundHandler(),
 		t,
 	)
+
+	recoverOrFail("/path", "given handler cannot be: nil", nil, t)
 }
 
 func TestStaticRouteMatcher(t *testing.T) {
@@ -297,12 +299,12 @@ func Benchmark_1Param(b *testing.B) {
 		w.Write([]byte(Parameters(r).ByName("id")))
 	})
 
-	req, err := http.NewRequest("GET", "http://localhost:8080/v1/users/5", nil)
+	req, err := http.NewRequest("GET", "/v1/users/5", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	benchRequest(b, router, req)
+	benchmark(b, router, req)
 }
 
 func Benchmark_Static(b *testing.B) {
@@ -310,12 +312,12 @@ func Benchmark_Static(b *testing.B) {
 		w.Write([]byte("OK"))
 	})
 
-	req, err := http.NewRequest("GET", "http://localhost:8080/static/path/pattern", nil)
+	req, err := http.NewRequest("GET", "/static/path/pattern", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	benchRequest(b, router, req)
+	benchmark(b, router, req)
 }
 
 func Benchmark_5Routes(b *testing.B) {
@@ -331,12 +333,12 @@ func Benchmark_5Routes(b *testing.B) {
 		New("/base/:id/user", handler),
 	)
 
-	req, err := http.NewRequest("GET", "http://localhost:8080/home/jey/5/user", nil)
+	req, err := http.NewRequest("GET", "/home/jey/5/user", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	benchRequest(b, router, req)
+	benchmark(b, router, req)
 }
 
 func TestGenerated(t *testing.T) {
@@ -345,7 +347,7 @@ func TestGenerated(t *testing.T) {
 
 	router := Chain(routes...)
 
-	req, err := http.NewRequest("GET", "http://localhost:8080"+pat, nil)
+	req, err := http.NewRequest("GET", pat, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,12 +365,12 @@ func Benchmark_1000Routes_1Param(b *testing.B) {
 
 	router := Chain(routes...)
 
-	req, err := http.NewRequest("GET", "http://localhost:8080"+pat, nil)
+	req, err := http.NewRequest("GET", pat, nil)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	benchRequest(b, router, req)
+	benchmark(b, router, req)
 }
 
 func generateRoutes(num, segments int) (routes []Router, last string) {
@@ -406,33 +408,11 @@ func rint(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-type mockResponseWriter struct{}
-
-func (m *mockResponseWriter) Header() (h http.Header) {
-	return http.Header{}
-}
-
-func (m *mockResponseWriter) Write(p []byte) (n int, err error) {
-	return len(p), nil
-}
-
-func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
-	return len(s), nil
-}
-
-func (m *mockResponseWriter) WriteHeader(int) {}
-
-func benchRequest(b *testing.B, router http.Handler, r *http.Request) {
-	w := new(mockResponseWriter)
-	u := r.URL
-	rq := u.RawQuery
-	r.RequestURI = u.RequestURI()
-
+func benchmark(b *testing.B, router Router, req *http.Request) {
 	b.ReportAllocs()
 	b.ResetTimer()
-
 	for i := 0; i < b.N; i++ {
-		u.RawQuery = rq
-		router.ServeHTTP(w, r)
+		router.Route(req)
+		Recycle(req)
 	}
 }

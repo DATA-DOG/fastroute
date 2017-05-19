@@ -248,6 +248,8 @@ func New(path string, handler interface{}) Router {
 		h = t
 	case func(http.ResponseWriter, *http.Request):
 		h = http.HandlerFunc(t)
+	case nil:
+		panic("given handler cannot be: nil")
 	default:
 		panic(fmt.Sprintf("not a handler given: %T - %+v", t, t))
 	}
