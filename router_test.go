@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -372,6 +373,52 @@ func Benchmark_1000Routes_1Param(b *testing.B) {
 
 	benchmark(b, router, req)
 }
+
+func Benchmark_1000Routes_1Param_HitCounting(b *testing.B) {
+	routes, pat := generateRoutes(1000, 10)
+	pat = strings.Replace(pat, ":id", "param", 1)
+
+	router := HitCountingOrderedChain(routes...)
+
+	req, err := http.NewRequest("GET", pat, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	benchmark(b, router, req)
+}
+
+func HitCountingOrderedChain(routes ...Router) Router {
+	hitRoutes := make([]*HitCounter, len(routes))
+	for i, r := range routes {
+		hitRoutes[i] = &HitCounter{Router: r}
+	}
+
+	return RouterFunc(func(req *http.Request) http.Handler {
+		for i, r := range hitRoutes {
+			if h := r.Route(req); h != nil {
+				r.hits++
+				// reorder route hit is behind one third of routes
+				if i > len(hitRoutes)*30/100 {
+					sort.Sort(SortByHits(hitRoutes))
+				}
+				return h
+			}
+		}
+		return nil
+	})
+}
+
+type HitCounter struct {
+	Router
+	hits int64
+}
+
+type SortByHits []*HitCounter
+
+func (s SortByHits) Len() int           { return len(s) }
+func (s SortByHits) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s SortByHits) Less(i, j int) bool { return s[i].hits > s[j].hits }
 
 func generateRoutes(num, segments int) (routes []Router, last string) {
 	handler := func(w http.ResponseWriter, r *http.Request) {

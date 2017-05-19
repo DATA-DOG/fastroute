@@ -86,6 +86,89 @@ You may also have a look at [mux](https://github.com/DATA-DOG/fastroute/tree/mas
 which is an example of full featured router implementation using **fastroute**. It replicates
 all features **HttpRouter** provides.
 
+### Hit counting frequently accessed routes
+
+In cases where **n** number of routes is very high and it is unknown what routes
+would be most frequently accessed or it changes during runtime, in order to
+highly improve performance, you can use **hit count** based reordering middleware.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"sort"
+
+	fr "github.com/DATA-DOG/fastroute"
+)
+
+var routes = map[string]fr.Router{
+	"GET": fr.Chain(
+		// here follows frequently accessed routes
+		HitCountingOrderedChain(
+			fr.New("/", handler),
+			fr.New("/health", handler),
+			fr.New("/status", handler),
+		),
+		// less frequently accessed routes
+		fr.New("/hello/:name/:surname", handler),
+		fr.New("/hello/:name", handler),
+	),
+	"POST": fr.Chain(
+		fr.New("/users", handler),
+		fr.New("/users/:id", handler),
+	),
+}
+
+// serves routes by request method
+var router = fr.RouterFunc(func(req *http.Request) http.Handler {
+	return routes[req.Method] // fastroute.Router is also http.Handler
+})
+
+func main() {
+	http.ListenAndServe(":8080", router)
+}
+
+func HitCountingOrderedChain(routes ...fr.Router) fr.Router {
+	type HitCounter struct {
+		fr.Router
+		hits int64
+	}
+
+	hitRoutes := make([]*HitCounter, len(routes))
+	for i, r := range routes {
+		hitRoutes[i] = &HitCounter{Router: r}
+	}
+
+	return fr.RouterFunc(func(req *http.Request) http.Handler {
+		for i, r := range hitRoutes {
+			if h := r.Route(req); h != nil {
+				r.hits++
+				// reorder route hit is behind one third of routes
+				if i > len(hitRoutes)*30/100 {
+					sort.Slice(hitRoutes, func(i, j int) bool {
+						return hitRoutes[i].hits > hitRoutes[j].hits
+					})
+				}
+				return h
+			}
+		}
+		return nil
+	})
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
+}
+```
+
 ### Matching by request method
 
 Seems like you do not need a framework for it.
