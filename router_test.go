@@ -2,10 +2,13 @@ package fastroute
 
 import (
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestShouldFallbackToNotFoundHandler(t *testing.T) {
@@ -334,6 +337,73 @@ func Benchmark_5Routes(b *testing.B) {
 	}
 
 	benchRequest(b, router, req)
+}
+
+func TestGenerated(t *testing.T) {
+	routes, pat := generateRoutes(60, 5)
+	pat = strings.Replace(pat, ":id", "param", 1)
+
+	router := Chain(routes...)
+
+	req, err := http.NewRequest("GET", "http://localhost:8080"+pat, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatal("not expected response code")
+	}
+}
+
+func Benchmark_1000Routes_1Param(b *testing.B) {
+	routes, pat := generateRoutes(1000, 10)
+	pat = strings.Replace(pat, ":id", "param", 1)
+
+	router := Chain(routes...)
+
+	req, err := http.NewRequest("GET", "http://localhost:8080"+pat, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	benchRequest(b, router, req)
+}
+
+func generateRoutes(num, segments int) (routes []Router, last string) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(Parameters(r).ByName("id")))
+	}
+
+	alphabet := "abcdefghijklmnopqrstuvwxyz"
+	unique := make(map[string]bool)
+	var j int
+	for len(unique) < num {
+		var segs []string
+		for i := 0; i < segments; i++ {
+			pos := rint(0, len(alphabet)-1)
+			segs = append(segs, string(alphabet[pos]))
+		}
+
+		path := "/" + strings.Join(segs, "/") + "/:id"
+		if _, duplicate := unique[path]; !duplicate {
+			unique[path] = true
+			last = path
+			routes = append(routes, New(path, handler))
+		}
+		j++
+	}
+
+	return
+}
+
+func init() {
+	rand.Seed(time.Now().UTC().UnixNano())
+}
+
+func rint(min int, max int) int {
+	return min + rand.Intn(max-min)
 }
 
 type mockResponseWriter struct{}
