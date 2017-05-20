@@ -60,6 +60,14 @@ func TestShouldRouteRouterAsHandler(t *testing.T) {
 	if w.Code != 404 {
 		t.Fatalf("unexpected response code: %d", w.Code)
 	}
+
+	req, _ = http.NewRequest("PUT", "/something", nil)
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
 }
 
 func TestEmptyRequestParameters(t *testing.T) {

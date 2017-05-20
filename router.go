@@ -153,6 +153,13 @@ func (ps Params) ByName(name string) string {
 	return ""
 }
 
+// used internally to lazily append parameters
+func (ps *Params) push(key, val string) {
+	n := len(*ps)
+	*ps = (*ps)[:n+1]
+	(*ps)[n].Key, (*ps)[n].Value = key, val
+}
+
 // Router interface is robust and nothing more than
 // http.Handler. It simply extends it with one extra method -
 // Route in order to route http.Request to http.Handler.
@@ -196,11 +203,11 @@ func (f RouterFunc) Route(req *http.Request) http.Handler {
 
 // ServeHTTP calls f(req) to get http.Handler and serve it,
 // or fallback to http.NotFound.
-func (f RouterFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h := f(r); h != nil {
-		h.ServeHTTP(w, r)
+func (f RouterFunc) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if h := f(req); h != nil {
+		h.ServeHTTP(w, req)
 	} else {
-		http.NotFound(w, r)
+		http.NotFound(w, req)
 	}
 }
 
@@ -257,9 +264,9 @@ func New(path string, handler interface{}) Router {
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
 		ps := &parameters{params: emptyParams, pattern: p}
-		return RouterFunc(func(r *http.Request) http.Handler {
-			if compareFunc(p, r.URL.Path) {
-				ps.wrap(r)
+		return RouterFunc(func(req *http.Request) http.Handler {
+			if segmentCompareFunc(p, req.URL.Path) {
+				ps.wrap(req)
 				return h
 			}
 			return nil
@@ -293,21 +300,21 @@ func New(path string, handler interface{}) Router {
 	}
 
 	// extend handler in order to salvage parameters
-	handle := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r)
-		if p := parameterized(r); p != nil {
-			p.reset(r)
+	handle := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		h.ServeHTTP(w, req)
+		if p := parameterized(req); p != nil {
+			p.reset(req)
 		}
 	})
 
 	// dynamic route matcher
-	return RouterFunc(func(r *http.Request) http.Handler {
+	return RouterFunc(func(req *http.Request) http.Handler {
 		p := pool.Get().(*parameters)
-		if match(segments, r.URL.Path, &p.params, ts) {
-			p.wrap(r)
+		if match(segments, req.URL.Path, &p.params, ts) {
+			p.wrap(req)
 			return handle
 		}
-		p.reset(r)
+		p.reset(req)
 		return nil
 	})
 }
@@ -321,38 +328,32 @@ func New(path string, handler interface{}) Router {
 // it might conflict when applied concurrently.
 func CaseInsensitive(router Router) Router {
 	return RouterFunc(func(req *http.Request) http.Handler {
-		compareFunc = strings.EqualFold
+		segmentCompareFunc = strings.EqualFold
 		handler := router.Route(req)
-		compareFunc = caseSensitiveCompare
+		segmentCompareFunc = caseSensitiveCompare
 		return handler
 	})
 }
 
-// matches pattern segments to an url
-// and pushes named parameters to ps
+// matches pattern segments to an url and pushes named parameters to ps
 func match(segments []string, url string, ps *Params, ts bool) bool {
-	for _, seg := range segments {
-		if lu := len(url); lu == 0 {
+	for _, segment := range segments {
+		if len(url) == 0 {
 			return false
-		} else if seg[1] == ':' {
-			n := len(*ps)
-			*ps = (*ps)[:n+1]
+		} else if segment[1] == ':' {
 			end := 1
-			for end < lu && url[end] != '/' {
+			for end < len(url) && url[end] != '/' {
 				end++
 			}
-
-			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url[1:end]
+			ps.push(segment[2:], url[1:end])
 			url = url[end:]
-		} else if seg[1] == '*' {
-			n := len(*ps)
-			*ps = (*ps)[:n+1]
-			(*ps)[n].Key, (*ps)[n].Value = seg[2:], url
+		} else if segment[1] == '*' {
+			ps.push(segment[2:], url)
 			return true
-		} else if lu < len(seg) {
+		} else if len(url) < len(segment) {
 			return false
-		} else if compareFunc(url[:len(seg)], seg) {
-			url = url[len(seg):]
+		} else if segmentCompareFunc(url[:len(segment)], segment) {
+			url = url[len(segment):]
 		} else {
 			return false
 		}
@@ -365,9 +366,9 @@ func caseSensitiveCompare(s1, s2 string) bool {
 	return s1 == s2
 }
 
-// compareFunc is used to compare static path
+// segmentCompareFunc is used to compare static path
 // can be overriden by CaseInsensitive middleware
-var compareFunc func(string, string) bool = caseSensitiveCompare
+var segmentCompareFunc func(string, string) bool = caseSensitiveCompare
 
 type parameters struct {
 	io.ReadCloser
