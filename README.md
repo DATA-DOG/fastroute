@@ -457,6 +457,83 @@ func redirect(fixedPath string) http.Handler {
 In cases when you know that all your routes are lowercase. Then you may just
 lowercase the fixed path and redirect instead of running case insensitive matching.
 
+### Named routes
+
+This is trivial to implement a package inside your project, where all your routes used may be named.
+And later paths built by these named routes from anywhere within your application.
+
+``` go
+package routes
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/DATA-DOG/fastroute"
+)
+
+var all = make(map[string]string)
+
+func Named(name, path string, handler interface{}) fastroute.Router {
+	if p, dup := all[name]; dup {
+		panic(fmt.Sprintf(`route: "%s" at path: "%s" was already registered for path: "%s"`, name, path, p))
+	}
+	all[name] = path
+	return fastroute.New(path, handler)
+}
+
+func Get(name string, params fastroute.Params) string {
+	p, ok := all[name]
+	if !ok {
+		panic(fmt.Sprintf(`route: "%s" was never registered`, name))
+	}
+	for _, param := range params {
+		if key := ":" + param.Key; strings.Index(p, key) != -1 {
+			p = strings.Replace(p, key, param.Value, 1)
+		} else if key = "*" + param.Key; strings.Index(p, key) != -1 {
+			p = strings.Replace(p, key, param.Value, 1)
+		}
+	}
+
+	if strings.IndexAny(p, ":*") != -1 {
+		panic(fmt.Sprintf(`not all parameters were set: "%s" for route: "%s"`, p, name))
+	}
+	return p
+}
+```
+
+Then the usage is obvious:
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/DATA-DOG/fastroute"
+	"github.com/DATA-DOG/fastroute/routes" // should be somewhere in your project
+)
+
+func main() {
+	router := fastroute.Chain(
+		routes.Named("home", "/", handler),
+		routes.Named("hello-full", "/hello/:name/:surname", handler),
+	)
+
+	fmt.Println(routes.Get("hello-full", fastroute.Params{
+		{"name", "John"},
+		{"surname", "Doe"},
+	}))
+
+	http.ListenAndServe(":8080", router)
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(`%s "%s"`, req.Method, req.URL.Path))
+}
+```
+
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).
