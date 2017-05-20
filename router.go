@@ -265,7 +265,7 @@ func New(path string, handler interface{}) Router {
 	if strings.IndexAny(p, ":*") == -1 {
 		ps := &parameters{params: emptyParams, pattern: p}
 		return RouterFunc(func(req *http.Request) http.Handler {
-			if segmentCompareFunc(p, req.URL.Path) {
+			if p == req.URL.Path {
 				ps.wrap(req)
 				return h
 			}
@@ -319,22 +319,6 @@ func New(path string, handler interface{}) Router {
 	})
 }
 
-// CaseInsensitive forces given router to match
-// path without case sensitivity.
-//
-// By default it uses case sensitive comparison.
-//
-// Note that, if application uses more than one router,
-// it might conflict when applied concurrently.
-func CaseInsensitive(router Router) Router {
-	return RouterFunc(func(req *http.Request) http.Handler {
-		segmentCompareFunc = strings.EqualFold
-		handler := router.Route(req)
-		segmentCompareFunc = caseSensitiveCompare
-		return handler
-	})
-}
-
 // matches pattern segments to an url and pushes named parameters to ps
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, segment := range segments {
@@ -352,7 +336,7 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 			return true
 		} else if len(url) < len(segment) {
 			return false
-		} else if segmentCompareFunc(url[:len(segment)], segment) {
+		} else if url[:len(segment)] == segment {
 			url = url[len(segment):]
 		} else {
 			return false
@@ -360,15 +344,6 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 	}
 	return (!ts && url == "") || (ts && url == "/") // match trailing slash
 }
-
-// the default static segment comparison function
-func caseSensitiveCompare(s1, s2 string) bool {
-	return s1 == s2
-}
-
-// segmentCompareFunc is used to compare static path
-// can be overriden by CaseInsensitive middleware
-var segmentCompareFunc func(string, string) bool = caseSensitiveCompare
 
 type parameters struct {
 	io.ReadCloser

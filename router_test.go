@@ -13,6 +13,7 @@ import (
 )
 
 func TestShouldFallbackToNotFoundHandler(t *testing.T) {
+	t.Parallel()
 	router := New("/xx", func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("not expected invocation")
 	})
@@ -30,6 +31,7 @@ func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 }
 
 func TestShouldRouteRouterAsHandler(t *testing.T) {
+	t.Parallel()
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	}
@@ -71,6 +73,7 @@ func TestShouldRouteRouterAsHandler(t *testing.T) {
 }
 
 func TestEmptyRequestParameters(t *testing.T) {
+	t.Parallel()
 	req, err := http.NewRequest("GET", "/any", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +90,7 @@ func TestEmptyRequestParameters(t *testing.T) {
 }
 
 func TestRoutePatternValidation(t *testing.T) {
+	t.Parallel()
 	recoverOrFail(
 		"/path/*",
 		"param must be named after sign: /path/*",
@@ -140,6 +144,7 @@ func TestRoutePatternValidation(t *testing.T) {
 }
 
 func TestStaticRouteMatcher(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/users/hello":      true,
 		"/user/hello":       false,
@@ -176,40 +181,8 @@ func TestStaticRouteMatcher(t *testing.T) {
 	}
 }
 
-func TestCompareBy(t *testing.T) {
-	handler := http.NotFoundHandler()
-
-	router := Chain(
-		New("/status", handler),
-		New("/users/:id", handler),
-		New("/users/:id/roles", handler),
-	)
-	router = CaseInsensitive(router)
-
-	cases := []string{
-		"/staTus",
-		"/status",
-		"/Users/5",
-		"/users/35",
-		"/users/2/roles",
-		"/Users/2/Roles",
-	}
-
-	for _, path := range cases {
-		req, err := http.NewRequest("GET", path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		h := router.Route(req)
-		Recycle(req)
-		if h == nil {
-			t.Errorf("expected: %s to match", path)
-		}
-	}
-}
-
 func TestDynamicRouteMatcher(t *testing.T) {
+	t.Parallel()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "OK")
 	})

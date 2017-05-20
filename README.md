@@ -82,9 +82,6 @@ their tree structured nature. Or having custom **Handlers** not compatible with
 ## Guides
 
 Here are some common usage guidelines:
-You may also have a look at [mux](https://github.com/DATA-DOG/fastroute/tree/master/mux/mux.go) package,
-which is an example of full featured router implementation using **fastroute**. It replicates
-all features **HttpRouter** provides.
 
 ### Hit counting frequently accessed routes
 
@@ -374,9 +371,12 @@ This way, it is possible to extend **fastroute.Router** with various middleware,
 ### Trailing slash or fixed path redirects
 
 In cases when your API faces public, it might be a good idea to redirect with corrected
-request URL.
+request URL if user makes a simple mistake.
 
-This would even fix trailing slash, case mismatch and cleaned path all at once.
+This fixes trailing slash, case mismatch and cleaned path all at once. Note, we should
+follow some specific rule, how we build our path patterns in order to be able to fix them.
+In this case we follow **all lowercase** rule for static segments, parameters may match any
+case.
 
 ``` go
 package main
@@ -395,6 +395,7 @@ func main() {
 		fmt.Fprintln(w, req.URL.Path, fastroute.Parameters(req))
 	})
 
+	// we follow the lowercase rule for static segments
 	router := fastroute.Chain(
 		fastroute.New("/status", handler),
 		fastroute.New("/users/:id", handler),
@@ -413,19 +414,18 @@ func redirectTrailingOrFixedPath(router fastroute.Router) fastroute.Router {
 			return h // has matched, no need for fixing
 		}
 
-		p := path.Clean(req.URL.Path) // first clean path
-		attempts := []string{p}       // first variant with cleaned path
+		p := strings.ToLower(path.Clean(req.URL.Path)) // first clean path and lowercase
+		attempts := []string{p}                        // first variant with cleaned path
 		if p[len(p)-1] == '/' {
 			attempts = append(attempts, p[:len(p)-1]) // without trailing slash
 		} else {
 			attempts = append(attempts, p+"/") // with trailing slash
 		}
 
-		ci := fastroute.CaseInsensitive(router)
 		try, _ := http.NewRequest(req.Method, "/", nil) // make request for all attempts
 		for _, attempt := range attempts {
 			try.URL.Path = attempt
-			if h := ci.Route(try); h != nil {
+			if h := router.Route(try); h != nil {
 				// matched, resolve fixed path and redirect
 				pat, params := fastroute.Pattern(try), fastroute.Parameters(try)
 				var fixed []string
@@ -453,9 +453,6 @@ func redirect(fixedPath string) http.Handler {
 	})
 }
 ```
-
-In cases when you know that all your routes are lowercase. Then you may just
-lowercase the fixed path and redirect instead of running case insensitive matching.
 
 ### Named routes
 
@@ -537,8 +534,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).
-Note, it uses [mux](https://github.com/DATA-DOG/fastroute/tree/master/mux/mux.go) package,
-which is just an example made for this benchmark.
 
 Benchmark type            | repeats   | cpu time op    | mem op      | mem allocs op    |
 --------------------------|----------:|---------------:|------------:|-----------------:|
