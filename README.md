@@ -4,20 +4,26 @@
 
 # FastRoute
 
-Insanely **small**, **robust** and **fast** http router for `golang`. Only **200**
-lines of code. Uses standard **http.Handler** and has no limitations
-to path matching compared to routers derived from **HttpRouter**.
+Insanely **simple**, **idiomatic** and **fast** - **200** loc
+http router for `golang`. Uses standard **http.Handler** and
+has no limitations to path matching compared to routers
+derived from **Trie (radix)** tree based solutions.
 
-> Less is more
+> Less is exponentially more
 
-**fastroute.Router** interface is robust and nothing more than
-**http.Handler**. It simply extends it with one extra method -
-**Route** in order to route **http.Request** to **http.Handler**.
-This way allows to chain it until a handler is matched.
+**fastroute.Router** interface extends **http.Handler** with one extra
+method - **Route** in order to route **http.Request** to **http.Handler**
+allowing to chain routes until one is matched.
 
-Apart from that **robust** interface **fastroute** adds a path
-pattern matching and named parameter support for flexibility
-and without memory allocation cost penalty.
+> Go is about composition
+
+The gravest problem all routers have - is the central structure
+holding all the context.
+
+**fastroute** is extremely flexible, because it has only static,
+unbounded functions. Allows unlimited ways to compose router.
+
+See the following example:
 
 ``` go
 package main
@@ -74,14 +80,48 @@ The trade off this router makes is the size of **n**. Instead it provides
 orthogonal building blocks, just like **http.Handler** does, in order to build
 customized routers.
 
-While all **HttpRouter** based implementations suffer from limitations such as
-disallowing routes like **/user/new** and **/user/:user** together, due to
-their tree structured nature. Or having custom **Handlers** not compatible with
-**http.Handler**. This router has none of these limitations.
-
 ## Guides
 
 Here are some common usage guidelines:
+
+### Custom Not Found handler
+
+Since **fastroute.Router** returns **nil** if request is not matched, we can easily
+extend it and create middleware for it at as many levels as we like.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/DATA-DOG/fastroute"
+)
+
+func main() {
+	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
+	})
+
+	router := fastroute.New("/users/:id", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintln(w, "user:", fastroute.Parameters(req).ByName("id"))
+	})
+
+	http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		if h := router.Route(req); h != nil {
+			return h
+		}
+		return notFoundHandler
+	}))
+}
+```
+
+This way, it is possible to extend **fastroute.Router** with various middleware, including:
+- Method not found handler.
+- Fixed path or trailing slash redirects. Based on your chosen route layout.
+- Options or **CORS**.
 
 ### Hit counting frequently accessed routes
 
@@ -163,53 +203,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		fr.Pattern(req),
 		fr.Parameters(req),
 	))
-}
-```
-
-### Matching by request method
-
-Seems like you do not need a framework for it.
-
-``` go
-package main
-
-import (
-	"fmt"
-	"net/http"
-
-	fr "github.com/DATA-DOG/fastroute"
-)
-
-func handler(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(w, fmt.Sprintf(
-		`%s "%s", pattern: "%s", parameters: "%v"`,
-		req.Method,
-		req.URL.Path,
-		fr.Pattern(req),
-		fr.Parameters(req),
-	))
-}
-
-func main() {
-	routes := make(map[string]fr.Router)
-
-	// can be chained on every new route dynamically
-	routes["GET"] = fr.New("/", handler)
-	routes["GET"] = fr.Chain(routes["GET"], fr.New("/hello/:name", handler))
-	routes["GET"] = fr.Chain(routes["GET"], fr.New("/health", handler))
-
-	// can be nicely combined manually
-	routes["POST"] = fr.Chain(
-		fr.New("/users", handler),
-		fr.New("/users/:id", handler),
-	)
-
-	// match by method
-	router := fr.RouterFunc(func(req *http.Request) http.Handler {
-		return routes[req.Method] // fastroute.Router is also http.Handler
-	})
-
-	http.ListenAndServe(":8080", router)
 }
 ```
 
@@ -328,45 +321,6 @@ func main() {
 	http.ListenAndServe(":8080", fastroute.Chain(staticRoutes, dynamicRoutes))
 }
 ```
-
-### Custom Not Found handler
-
-Since **fastroute.Router** returns **nil** if request is not matched, we can easily
-extend it and create middleware for it at as many levels as we like.
-
-``` go
-package main
-
-import (
-	"fmt"
-	"net/http"
-
-	"github.com/DATA-DOG/fastroute"
-)
-
-func main() {
-	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(404)
-		fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
-	})
-
-	router := fastroute.New("/users/:id", func(w http.ResponseWriter, req *http.Request) {
-		fmt.Fprintln(w, "user:", fastroute.Parameters(req).ByName("id"))
-	})
-
-	http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
-		if h := router.Route(req); h != nil {
-			return h
-		}
-		return notFoundHandler
-	}))
-}
-```
-
-This way, it is possible to extend **fastroute.Router** with various middleware, including:
-- Method not found handler.
-- Fixed path or trailing slash redirects. Based on your chosen route layout.
-- Options or **CORS**.
 
 ### Trailing slash or fixed path redirects
 

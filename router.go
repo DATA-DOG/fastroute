@@ -1,4 +1,4 @@
-// Package fastroute is standard http.Handler based high performance HTTP request router.
+// Package fastroute is static, composable high performance HTTP request router.
 //
 // A trivial example is:
 //
@@ -43,11 +43,11 @@
 //
 // The router can be composed of fastroute.Router interface, which shares
 // the same http.Handler interface. This package provides only this orthogonal
-// interface as a building block.
+// interface as a building block together with path pattern matching in order
+// to construct dynamic routes having named Params available from http.Request
+// at zero allocation cost.
 //
-// It also provides path pattern matching in order to construct dynamic routes
-// having named Params available from http.Request at zero allocation cost.
-// You can extract path parameters from request this way:
+// Path parameters can be extracted from request this way:
 //
 //  params := fastroute.Parameters(request) // request - *http.Request
 //  fmt.Println(params.ByName("id"))
@@ -160,27 +160,25 @@ func (ps *Params) push(key, val string) {
 	(*ps)[n].Key, (*ps)[n].Value = key, val
 }
 
-// Router interface is robust and nothing more than
-// http.Handler. It simply extends it with one extra method -
-// Route in order to route http.Request to http.Handler.
-// This way allows to chain it until a handler is matched.
+// Router interface extends http.Handler with one extra
+// method - Route in order to route http.Request to http.Handler
+// allowing to chain routes until one is matched.
 //
-// Route func should return handler or nil.
+// Route should route given request to
+// the http.Handler. It may return nil if
+// request cannot be handled. When ServeHTTP
+// is invoked and handler is nil, it will
+// serve http.NotFoundHandler
+//
+// Note, if the router is matched and it has
+// path parameters - then it must be served
+// in order to release allocated parameters
+// back to the pool. Otherwise you will leak
+// parameters, which you can also salvage by
+// calling Recycle(http.Request)
 type Router interface {
 	http.Handler
 
-	// Route should route given request to
-	// the http.Handler. It may return nil if
-	// request cannot be matched. When ServeHTTP
-	// is invoked and handler is nil, it will
-	// serve http.NotFoundHandler
-	//
-	// Note, if the router is matched and it has
-	// path parameters - then it must be served
-	// in order to release allocated parameters
-	// back to the pool. Otherwise you will leak
-	// parameters, which you can also salvage by
-	// calling Recycle on http.Request
 	Route(*http.Request) http.Handler
 }
 
