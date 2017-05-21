@@ -273,8 +273,7 @@ func New(path string, handler interface{}) Router {
 
 	// prepare and validate pattern segments to match
 	segments := strings.Split(strings.Trim(p, "/"), "/")
-	for i := 0; i < len(segments); i++ {
-		seg := segments[i]
+	for i, seg := range segments {
 		segments[i] = "/" + seg
 		if pos := strings.IndexAny(seg, ":*"); pos == -1 {
 			continue
