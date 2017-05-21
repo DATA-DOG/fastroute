@@ -319,24 +319,23 @@ func New(path string, handler interface{}) Router {
 // matches pattern segments to an url and pushes named parameters to ps
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, segment := range segments {
-		if len(url) == 0 {
+		switch {
+		case len(url) == 0:
 			return false
-		} else if segment[1] == ':' {
+		case segment[1] == ':':
 			end := 1
 			for end < len(url) && url[end] != '/' {
 				end++
 			}
 			ps.push(segment[2:], url[1:end])
 			url = url[end:]
-		} else if segment[1] == '*' {
+		case segment[1] == '*':
 			ps.push(segment[2:], url)
 			return true
-		} else if len(url) < len(segment) {
+		case len(url) < len(segment) || url[:len(segment)] != segment:
 			return false
-		} else if url[:len(segment)] == segment {
+		default:
 			url = url[len(segment):]
-		} else {
-			return false
 		}
 	}
 	return (!ts && url == "") || (ts && url == "/") // match trailing slash
