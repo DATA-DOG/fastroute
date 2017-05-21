@@ -363,8 +363,6 @@ func (p *parameters) reset(req *http.Request) {
 }
 
 func parameterized(req *http.Request) *parameters {
-	if p, ok := req.Body.(*parameters); ok {
-		return p
-	}
-	return nil
+	p, _ := req.Body.(*parameters)
+	return p
 }
