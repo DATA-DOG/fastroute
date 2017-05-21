@@ -11,6 +11,32 @@ import (
 	"time"
 )
 
+func TestRecyclesParameters(t *testing.T) {
+	t.Parallel()
+
+	router := New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("not expected invocation")
+	})
+
+	req, _ := http.NewRequest("GET", "/users/5", nil)
+	if h := router.Route(req); h == nil {
+		t.Fatalf("expected request for path: %s to be routed, but it was not", req.URL.Path)
+	}
+
+	if len(Parameters(req)) != 1 {
+		t.Fatalf("expected one parameter, but there was: %+v", Parameters(req))
+	}
+
+	Recycle(req)
+
+	if len(Parameters(req)) != 0 {
+		t.Fatal("should have recycled parameters")
+	}
+	if _, ok := req.Body.(*parameters); ok {
+		t.Fatal("should have reset request body")
+	}
+}
+
 func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 	t.Parallel()
 	router := New("/xx", func(w http.ResponseWriter, r *http.Request) {
