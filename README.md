@@ -4,7 +4,7 @@
 
 # FastRoute
 
-Insanely **simple**, **idiomatic** and **fast** - **175** loc
+Insanely **simple**, **idiomatic** and **fast** - **172** loc
 http router for `golang`. Uses standard **http.Handler** and
 has no limitations to path matching compared to routers
 derived from **Trie (radix)** tree based solutions.
@@ -583,7 +583,7 @@ depending on an use case. By default it targets smaller number of routes and the
 link is large set of dynamic routes, because these are matched one by one in order.
 
 It always boils down to targeted case implementation. It is a general purpose router of
-**200** lines of source code in one file, which can be copied, understood and adapted in
+**172** lines of source code in one file, which can be copied, understood and adapted in
 separate projects.
 
 ## Contributions

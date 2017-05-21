@@ -10,9 +10,9 @@ go:
 go_import_path: github.com/DATA-DOG/fastroute
 
 script:
-  - go vet ./...
-  - go fmt ./...
-  - go test -v -race -bench=. -coverprofile=coverage.txt -covermode=atomic
+  - go vet
+  - go fmt
+  - go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
 after_success:
   - bash <(curl -s https://codecov.io/bash)
