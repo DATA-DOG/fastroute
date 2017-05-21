@@ -98,7 +98,7 @@ func Parameters(req *http.Request) Params {
 	if p := parameterized(req); p != nil {
 		return p.params
 	}
-	return emptyParams
+	return nil
 }
 
 // Pattern gives matched route path pattern
@@ -261,7 +261,7 @@ func New(path string, handler interface{}) Router {
 
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
-		ps := &parameters{params: emptyParams, pattern: p}
+		ps := &parameters{pattern: p}
 		return RouterFunc(func(req *http.Request) http.Handler {
 			if p == req.URL.Path {
 				ps.wrap(req)
@@ -369,5 +369,3 @@ func parameterized(req *http.Request) *parameters {
 	}
 	return nil
 }
-
-var emptyParams = make(Params, 0, 0)

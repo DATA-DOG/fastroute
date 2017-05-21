@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -175,7 +174,7 @@ func TestStaticRouteMatcher(t *testing.T) {
 		}
 
 		params := Parameters(req)
-		if !reflect.DeepEqual(emptyParams, params) {
+		if len(params) > 0 {
 			t.Fatal("expected empty params")
 		}
 	}
