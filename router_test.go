@@ -176,9 +176,11 @@ func TestStaticRouteMatcher(t *testing.T) {
 		"/users/hello/":     false,
 		"/users/hello/bin":  false,
 		"/users/hello/bin/": true,
+		"/":                 true,
 	}
 	router := Chain(
 		New("/users/hello/bin/", http.NotFoundHandler()),
+		New("/", http.NotFoundHandler()),
 		New("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
 	)
 
@@ -220,27 +222,29 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		New("/files/*filepath", handler),
 	)
 
+	type kv map[string]string // reduce clutter
+
 	cases := []struct {
 		path    string
 		pattern string
-		params  map[string]string
+		params  kv
 		match   bool
 	}{
-		{"/a/dic/c", "/a/:b/c", map[string]string{"b": "dic"}, true},
-		{"/a/d/c", "/a/:b/c", map[string]string{"b": "d"}, true},
-		{"/a/c", "", map[string]string{}, false},
-		{"/a/c/c", "/a/:b/c", map[string]string{"b": "c"}, true},
-		{"/a/c/b", "", map[string]string{}, false},
-		{"/a/c/c/", "", map[string]string{}, false},
-		{"/category/5/product/x/a/bc", "/category/:cid/product/*rest", map[string]string{"cid": "5", "rest": "/x/a/bc"}, true},
-		{"/users/a/b/", "/users/:id/:bid/", map[string]string{"id": "a", "bid": "b"}, true},
-		{"/users/a/b/be/", "", map[string]string{}, false},
-		{"/applications/:client_id/tokens", "/applications/:client_id/tokens", map[string]string{"client_id": ":client_id"}, true},
-		{"/repos/:owner/:repo/issues/:number/labels", "", map[string]string{}, false},
-		{"/files/LICENSE", "/files/*filepath", map[string]string{"filepath": "/LICENSE"}, true},
-		{"/files/", "/files/*filepath", map[string]string{"filepath": "/"}, true},
-		{"/files", "", map[string]string{}, false},
-		{"/files/css/style.css", "/files/*filepath", map[string]string{"filepath": "/css/style.css"}, true},
+		{"/a/dic/c", "/a/:b/c", kv{"b": "dic"}, true},
+		{"/a/d/c", "/a/:b/c", kv{"b": "d"}, true},
+		{"/a/c", "", kv{}, false},
+		{"/a/c/c", "/a/:b/c", kv{"b": "c"}, true},
+		{"/a/c/b", "", kv{}, false},
+		{"/a/c/c/", "", kv{}, false},
+		{"/category/5/product/x/a/bc", "/category/:cid/product/*rest", kv{"cid": "5", "rest": "/x/a/bc"}, true},
+		{"/users/a/b/", "/users/:id/:bid/", kv{"id": "a", "bid": "b"}, true},
+		{"/users/a/b/be/", "", kv{}, false},
+		{"/applications/:client_id/tokens", "/applications/:client_id/tokens", kv{"client_id": ":client_id"}, true},
+		{"/repos/:owner/:repo/issues/:number/labels", "", kv{}, false},
+		{"/files/LICENSE", "/files/*filepath", kv{"filepath": "/LICENSE"}, true},
+		{"/files/", "/files/*filepath", kv{"filepath": "/"}, true},
+		{"/files", "", kv{}, false},
+		{"/files/css/style.css", "/files/*filepath", kv{"filepath": "/css/style.css"}, true},
 	}
 
 	for i, c := range cases {
@@ -286,19 +290,22 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	}
 }
 
-func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
-	defer func() {
-		if err := recover(); err != nil {
-			actual := fmt.Sprintf("%s", err)
-			if actual != expectedMessage {
-				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
-			}
-		}
-	}()
+func TestGenerated(t *testing.T) {
+	routes, pat := generateRoutes(60, 5)
+	pat = strings.Replace(pat, ":id", "param", 1)
 
-	New(pattern, h)
+	router := Chain(routes...)
 
-	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
+	req, err := http.NewRequest("GET", pat, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatal("not expected response code")
+	}
 }
 
 func Benchmark_1Param(b *testing.B) {
@@ -346,24 +353,6 @@ func Benchmark_5Routes(b *testing.B) {
 	}
 
 	benchmark(b, router, req)
-}
-
-func TestGenerated(t *testing.T) {
-	routes, pat := generateRoutes(60, 5)
-	pat = strings.Replace(pat, ":id", "param", 1)
-
-	router := Chain(routes...)
-
-	req, err := http.NewRequest("GET", pat, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatal("not expected response code")
-	}
 }
 
 func Benchmark_1000Routes_1Param(b *testing.B) {
@@ -426,6 +415,21 @@ func (s SortByHits) Len() int           { return len(s) }
 func (s SortByHits) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s SortByHits) Less(i, j int) bool { return s[i].hits > s[j].hits }
 
+func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T) {
+	defer func() {
+		if err := recover(); err != nil {
+			actual := fmt.Sprintf("%s", err)
+			if actual != expectedMessage {
+				t.Fatalf(`actual message: "%s" does not match expected: "%s"`, actual, expectedMessage)
+			}
+		}
+	}()
+
+	New(pattern, h)
+
+	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
+}
+
 func generateRoutes(num, segments int) (routes []Router, last string) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(Parameters(r).ByName("id")))
@@ -433,12 +437,16 @@ func generateRoutes(num, segments int) (routes []Router, last string) {
 
 	alphabet := "abcdefghijklmnopqrstuvwxyz"
 	unique := make(map[string]bool)
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	char := func() byte {
+		return alphabet[rnd.Intn(len(alphabet)-1)]
+	}
+
 	var j int
 	for len(unique) < num {
 		var segs []string
 		for i := 0; i < segments; i++ {
-			pos := rint(0, len(alphabet)-1)
-			segs = append(segs, string(alphabet[pos]))
+			segs = append(segs, string(char()))
 		}
 
 		path := "/" + strings.Join(segs, "/") + "/:id"
@@ -451,14 +459,6 @@ func generateRoutes(num, segments int) (routes []Router, last string) {
 	}
 
 	return
-}
-
-func init() {
-	rand.Seed(time.Now().UTC().UnixNano())
-}
-
-func rint(min int, max int) int {
-	return min + rand.Intn(max-min)
 }
 
 func benchmark(b *testing.B, router Router, req *http.Request) {

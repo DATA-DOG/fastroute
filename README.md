@@ -66,6 +66,9 @@ func handler(w http.ResponseWriter, req *http.Request) {
 }
 ```
 
+The exported API is done and will never change, **backward compatibility is
+now guaranteed** unless there are go1.x incompatible changes.
+
 In overall, it is **not all in one** router, it is the same **http.Handler**
 with do it yourself style, but with **zero allocations** path pattern matching.
 Feel free to just copy it and adapt to your needs.
@@ -491,91 +494,75 @@ The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-be
 
 Benchmark type            | repeats   | cpu time op    | mem op      | mem allocs op    |
 --------------------------|----------:|---------------:|------------:|-----------------:|
-Gin_Param                 |20000000   |    70.9 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_Param          |  500000   |    3116 ns/op  |   1056 B/op |     11 allocs/op |
-HttpRouter_Param          |20000000   |     117 ns/op  |     32 B/op |      1 allocs/op |
-**FastRoute_Param**       |20000000   |     105 ns/op  |      0 B/op |      0 allocs/op |
-Pat_Param                 | 1000000   |    1910 ns/op  |    648 B/op |     12 allocs/op |
-Gin_Param5                |20000000   |     117 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_Param5         |  300000   |    4597 ns/op  |   1184 B/op |     11 allocs/op |
-HttpRouter_Param5         | 3000000   |     487 ns/op  |    160 B/op |      1 allocs/op |
-**FastRoute_Param5**      |20000000   |     117 ns/op  |      0 B/op |      0 allocs/op |
-Pat_Param5                |  300000   |    4717 ns/op  |    964 B/op |     32 allocs/op |
-Gin_Param20               | 5000000   |     280 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_Param20        |  200000   |   11062 ns/op  |   3547 B/op |     13 allocs/op |
-HttpRouter_Param20        | 1000000   |    1670 ns/op  |    640 B/op |      1 allocs/op |
-**FastRoute_Param20**     |10000000   |     197 ns/op  |      0 B/op |      0 allocs/op |
-Pat_Param20               |  100000   |   20735 ns/op  |   4687 B/op |    111 allocs/op |
-Gin_ParamWrite            |10000000   |     170 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_ParamWrite     |  500000   |    3136 ns/op  |   1064 B/op |     12 allocs/op |
-HttpRouter_ParamWrite     |10000000   |     156 ns/op  |     32 B/op |      1 allocs/op |
-**FastRoute_ParamWrite**  |10000000   |     162 ns/op  |      0 B/op |      0 allocs/op |
-Pat_ParamWrite            |  500000   |    3196 ns/op  |   1072 B/op |     17 allocs/op |
-Gin_GithubStatic          |20000000   |    87.3 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GithubStatic   |  100000   |   15215 ns/op  |    736 B/op |     10 allocs/op |
-HttpRouter_GithubStatic   |30000000   |    49.7 ns/op  |      0 B/op |      0 allocs/op |
-**FastRoute_GithubStatic**|20000000   |    60.3 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GithubStatic          |  200000   |   10970 ns/op  |   3648 B/op |     76 allocs/op |
-Gin_GithubParam           |10000000   |     142 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GithubParam    |  200000   |    9998 ns/op  |   1088 B/op |     11 allocs/op |
-HttpRouter_GithubParam    | 5000000   |     301 ns/op  |     96 B/op |      1 allocs/op |
-**FastRoute_GithubParam** | 5000000   |     387 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GithubParam           |  200000   |    7083 ns/op  |   2464 B/op |     48 allocs/op |
-Gin_GithubAll             |   50000   |   28162 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GithubAll      |     300   | 5731742 ns/op  | 211840 B/op |   2272 allocs/op |
-HttpRouter_GithubAll      |   30000   |   49198 ns/op  |  13792 B/op |    167 allocs/op |
-**FastRoute_GithubAll**   |   10000   |  179753 ns/op  |      5 B/op |      0 allocs/op |
-Pat_GithubAll             |     300   | 4388066 ns/op  |1499571 B/op |  27435 allocs/op |
-Gin_GPlusStatic           |20000000   |    73.3 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GPlusStatic    | 1000000   |    2015 ns/op  |    736 B/op |     10 allocs/op |
-HttpRouter_GPlusStatic    |30000000   |    34.0 ns/op  |      0 B/op |      0 allocs/op |
-**FastRoute_GPlusStatic** |50000000   |    37.3 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GPlusStatic           | 5000000   |     330 ns/op  |     96 B/op |      2 allocs/op |
-Gin_GPlusParam            |20000000   |    96.9 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GPlusParam     |  300000   |    4334 ns/op  |   1056 B/op |     11 allocs/op |
-HttpRouter_GPlusParam     |10000000   |     212 ns/op  |     64 B/op |      1 allocs/op |
-**FastRoute_GPlusParam**  |10000000   |     145 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GPlusParam            | 1000000   |    2142 ns/op  |    688 B/op |     12 allocs/op |
-Gin_GPlus2Params          |10000000   |     121 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GPlus2Params   |  200000   |    8264 ns/op  |   1088 B/op |     11 allocs/op |
-HttpRouter_GPlus2Params   |10000000   |     232 ns/op  |     64 B/op |      1 allocs/op |
-**FastRoute_GPlus2Params**| 5000000   |     351 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GPlus2Params          |  200000   |    6557 ns/op  |   2256 B/op |     34 allocs/op |
-Gin_GPlusAll              | 1000000   |    1279 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_GPlusAll       |   20000   |   66580 ns/op  |  13296 B/op |    142 allocs/op |
-HttpRouter_GPlusAll       | 1000000   |    2358 ns/op  |    640 B/op |     11 allocs/op |
-**FastRoute_GPlusAll**    |  500000   |    2546 ns/op  |      0 B/op |      0 allocs/op |
-Pat_GPlusAll              |   30000   |   47673 ns/op  |  16576 B/op |    298 allocs/op |
-Gin_ParseStatic           |20000000   |    71.2 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_ParseStatic    |  500000   |    2971 ns/op  |    752 B/op |     11 allocs/op |
-HttpRouter_ParseStatic    |50000000   |    32.1 ns/op  |      0 B/op |      0 allocs/op |
-**FastRoute_ParseStatic** |30000000   |    42.3 ns/op  |      0 B/op |      0 allocs/op |
-Pat_ParseStatic           | 2000000   |     781 ns/op  |    240 B/op |      5 allocs/op |
-Gin_ParseParam            |20000000   |    79.2 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_ParseParam     |  500000   |    3710 ns/op  |   1088 B/op |     12 allocs/op |
-HttpRouter_ParseParam     |10000000   |     181 ns/op  |     64 B/op |      1 allocs/op |
-**FastRoute_ParseParam**  |10000000   |     184 ns/op  |      0 B/op |      0 allocs/op |
-Pat_ParseParam            |  500000   |    3165 ns/op  |   1120 B/op |     17 allocs/op |
-Gin_Parse2Params          |20000000   |    91.5 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_Parse2Params   |  500000   |    3916 ns/op  |   1088 B/op |     11 allocs/op |
-HttpRouter_Parse2Params   |10000000   |     212 ns/op  |     64 B/op |      1 allocs/op |
-**FastRoute_Parse2Params**|10000000   |     147 ns/op  |      0 B/op |      0 allocs/op |
-Pat_Parse2Params          |  500000   |    2980 ns/op  |    832 B/op |     17 allocs/op |
-Gin_ParseAll              | 1000000   |    2264 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_ParseAll       |   10000   |  125569 ns/op  |  24864 B/op |    292 allocs/op |
-HttpRouter_ParseAll       |  500000   |    3124 ns/op  |    640 B/op |     16 allocs/op |
-**FastRoute_ParseAll**    |  500000   |    3324 ns/op  |      0 B/op |      0 allocs/op |
-Pat_ParseAll              |   30000   |   56328 ns/op  |  17264 B/op |    343 allocs/op |
-Gin_StaticAll             |  100000   |   19064 ns/op  |      0 B/op |      0 allocs/op |
-GorillaMux_StaticAll      |    1000   | 1536755 ns/op  | 115648 B/op |   1578 allocs/op |
-**FastRoute_StaticAll**   |  200000   |    9149 ns/op  |      0 B/op |      0 allocs/op |
-HttpRouter_StaticAll      |  200000   |   10824 ns/op  |      0 B/op |      0 allocs/op |
-Pat_StaticAll             |    1000   | 1597577 ns/op  | 533904 B/op |  11123 allocs/op |
+Gin_Param                 | 20000000  |     70.3 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_Param          |   500000  |     3133 ns/op |    1056 B/op|      11 allocs/op|
+HttpRouter_Param          | 20000000  |      119 ns/op |      32 B/op|       1 allocs/op|
+**FastRoute_Param**       | 20000000  |     78.4 ns/op |       0 B/op|       0 allocs/op|
+Gin_Param5                | 10000000  |      122 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_Param5         |   300000  |     4657 ns/op |    1184 B/op|      11 allocs/op|
+HttpRouter_Param5         |  3000000  |      489 ns/op |     160 B/op|       1 allocs/op|
+**FastRoute_Param5**      | 20000000  |      107 ns/op |       0 B/op|       0 allocs/op|
+Gin_Param20               |  5000000  |      281 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_Param20        |   200000  |    11437 ns/op |    3547 B/op|      13 allocs/op|
+HttpRouter_Param20        |  1000000  |     1690 ns/op |     640 B/op|       1 allocs/op|
+**FastRoute_Param20**     | 10000000  |      204 ns/op |       0 B/op|       0 allocs/op|
+Gin_ParamWrite            | 10000000  |      177 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_ParamWrite     |   500000  |     3197 ns/op |    1064 B/op|      12 allocs/op|
+HttpRouter_ParamWrite     | 10000000  |      171 ns/op |      32 B/op|       1 allocs/op|
+**FastRoute_ParamWrite**  | 10000000  |      125 ns/op |       0 B/op|       0 allocs/op|
+Gin_GithubStatic          | 20000000  |     92.1 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GithubStatic   |   100000  |    15488 ns/op |     736 B/op|      10 allocs/op|
+HttpRouter_GithubStatic   | 30000000  |     50.9 ns/op |       0 B/op|       0 allocs/op|
+**FastRoute_GithubStatic**| 30000000  |     42.0 ns/op |       0 B/op|       0 allocs/op|
+Gin_GithubParam           | 10000000  |      168 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GithubParam    |   200000  |    10178 ns/op |    1088 B/op|      11 allocs/op|
+HttpRouter_GithubParam    |  5000000  |      304 ns/op |      96 B/op|       1 allocs/op|
+**FastRoute_GithubParam** |  1000000  |     2202 ns/op |       0 B/op|       0 allocs/op|
+Gin_GithubAll             |    50000  |    28518 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GithubAll      |      300  |  5719143 ns/op |  211840 B/op|    2272 allocs/op|
+HttpRouter_GithubAll      |    30000  |    51511 ns/op |   13792 B/op|     167 allocs/op|
+**FastRoute_GithubAll**   |     5000  |   349434 ns/op |      11 B/op|       0 allocs/op|
+Gin_GPlusStatic           | 20000000  |     75.4 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GPlusStatic    |  1000000  |     1978 ns/op |     736 B/op|      10 allocs/op|
+HttpRouter_GPlusStatic    | 50000000  |     30.3 ns/op |       0 B/op|       0 allocs/op|
+**FastRoute_GPlusStatic** | 100000000 |     23.9 ns/op |       0 B/op|       0 allocs/op|
+Gin_GPlusParam            | 20000000  |     94.8 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GPlusParam     |   500000  |     4068 ns/op |    1056 B/op|      11 allocs/op|
+HttpRouter_GPlusParam     | 10000000  |      215 ns/op |      64 B/op|       1 allocs/op|
+**FastRoute_GPlusParam**  |  5000000  |      249 ns/op |       0 B/op|       0 allocs/op|
+Gin_GPlus2Params          | 10000000  |      134 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GPlus2Params   |   200000  |     8206 ns/op |    1088 B/op|      11 allocs/op|
+HttpRouter_GPlus2Params   | 10000000  |      233 ns/op |      64 B/op|       1 allocs/op|
+**FastRoute_GPlus2Params**|  3000000  |      438 ns/op |       0 B/op|       0 allocs/op|
+Gin_GPlusAll              |  1000000  |     1296 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_GPlusAll       |    20000  |    67092 ns/op |   13296 B/op|     142 allocs/op|
+HttpRouter_GPlusAll       |   500000  |     2332 ns/op |     640 B/op|      11 allocs/op|
+**FastRoute_GPlusAll**    |   500000  |     3417 ns/op |       0 B/op|       0 allocs/op|
+Gin_ParseStatic           | 20000000  |     72.7 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_ParseStatic    |   500000  |     2951 ns/op |     752 B/op|      11 allocs/op|
+HttpRouter_ParseStatic    | 50000000  |     31.9 ns/op |       0 B/op|       0 allocs/op|
+**FastRoute_ParseStatic** | 50000000  |     30.0 ns/op |       0 B/op|       0 allocs/op|
+Gin_ParseParam            | 20000000  |     80.2 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_ParseParam     |   500000  |     3644 ns/op |    1088 B/op|      12 allocs/op|
+HttpRouter_ParseParam     | 10000000  |      180 ns/op |      64 B/op|       1 allocs/op|
+**FastRoute_ParseParam**  |  5000000  |      256 ns/op |       0 B/op|       0 allocs/op|
+Gin_Parse2Params          | 20000000  |     93.9 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_Parse2Params   |   500000  |     3945 ns/op |    1088 B/op|      11 allocs/op|
+HttpRouter_Parse2Params   | 10000000  |      205 ns/op |      64 B/op|       1 allocs/op|
+**FastRoute_Parse2Params**| 10000000  |      212 ns/op |       0 B/op|       0 allocs/op|
+Gin_ParseAll              |  1000000  |     2389 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_ParseAll       |    10000  |   125536 ns/op |   24864 B/op|     292 allocs/op|
+HttpRouter_ParseAll       |   500000  |     3151 ns/op |     640 B/op|      16 allocs/op|
+**FastRoute_ParseAll**    |   500000  |     3874 ns/op |       0 B/op|       0 allocs/op|
+Gin_StaticAll             |   100000  |    19688 ns/op |       0 B/op|       0 allocs/op|
+GorillaMux_StaticAll      |     1000  |  1561137 ns/op |  115648 B/op|    1578 allocs/op|
+**FastRoute_StaticAll**   |   200000  |     7009 ns/op |       0 B/op|       0 allocs/op|
+HttpRouter_StaticAll      |   200000  |    11083 ns/op |       0 B/op|       0 allocs/op|
 
 We can see that **FastRoute** outperforms fastest routers in some of the cases:
 - Number of routes is small.
 - Routes are static and served from a map.
-- There are many named parameters.
+- There are many named parameters in route.
 
 **FastRoute** was easily adapted for this benchmark. Where static routes are served, nothing
 is better or faster than a static path **map**. **FastRoute** allows to build any kind of router,
