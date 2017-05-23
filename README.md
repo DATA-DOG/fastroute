@@ -83,9 +83,19 @@ The trade off this router makes is the size of **n**. Instead it provides
 orthogonal building blocks, just like **http.Handler** does, in order to build
 customized routers.
 
+See [benchmark results](#benchmarks) for more details.
+
 ## Guides
 
 Here are some common usage guidelines:
+
+- [Custom Not Found](#custom-not-found-handler)
+- [Hit counting frequently accessed routes](#hit-counting-frequently-accessed-routes)
+- [Method Not Found](#method-not-found-support)
+- [Options](#options)
+- [Combining static routes](#combining-static-routes)
+- [Trailing slash or fixed path redirects](#trailing-slash-or-fixed-path-redirects)
+- [Named routes](#named-routes)
 
 ### Custom Not Found handler
 
@@ -286,6 +296,96 @@ Content-Length: 19
 Content-Type: text/plain; charset=utf-8
 
 Method Not Allowed
+```
+
+### Options
+
+Middleware example for **OPTIONS**:
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	fr "github.com/DATA-DOG/fastroute"
+)
+
+var routes = map[string]fr.Router{
+	"GET":    fr.New("/users", handler),
+	"POST":   fr.New("/users/:id", handler),
+	"PUT":    fr.New("/users/:id", handler),
+	"DELETE": fr.New("/users/:id", handler),
+}
+
+var router = fr.RouterFunc(func(req *http.Request) http.Handler {
+	return routes[req.Method] // fastroute.Router is also http.Handler
+})
+
+func main() {
+	http.ListenAndServe(":8080", fr.Chain(
+		router,          // maybe one of routes
+		options(routes), // fallback to options if requested
+		// maybe method not allowed
+		// maybe redirect fixed path
+		// not found then
+	))
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
+}
+
+func options(routes map[string]fr.Router) fr.Router {
+	return fr.RouterFunc(func(req *http.Request) http.Handler {
+		if req.Method != "OPTIONS" {
+			return nil
+		}
+
+		fmt.Println(req.URL.Path)
+		var allows []string
+		for method, routes := range routes {
+			if req.URL.Path == "*" {
+				// though most of the tools like curl, does not support such a request
+				allows = append(allows, method)
+				continue
+			}
+
+			if h := routes.Route(req); h != nil {
+				allows = append(allows, method)
+				fr.Recycle(req) // we will not serve it, need to recycle
+			}
+		}
+
+		if len(allows) == 0 {
+			return nil
+		}
+
+		allows = append(allows, "OPTIONS")
+
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("Allow", strings.Join(allows, ","))
+		})
+	})
+}
+```
+
+If we make a request: `curl -i -X OPTIONS http://localhost:8080/users/1`, we will get:
+
+```
+HTTP/1.1 200 OK
+Allow: POST,PUT,DELETE,OPTIONS
+Date: Tue, 23 May 2017 07:31:47 GMT
+Content-Length: 0
+Content-Type: text/plain; charset=utf-8
 ```
 
 ### Combining static routes
@@ -491,6 +591,8 @@ func handler(w http.ResponseWriter, req *http.Request) {
 ## Benchmarks
 
 The benchmarks can be [found here](https://github.com/l3pp4rd/go-http-routing-benchmark/tree/fastroute).
+
+The output for: `go test -bench='Gin|HttpRouter|GorillaMux|FastRoute'`
 
 Benchmark type            | repeats   | cpu time op    | mem op      | mem allocs op    |
 --------------------------|----------:|---------------:|------------:|-----------------:|

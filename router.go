@@ -68,6 +68,13 @@
 //   /blog/go/                           no match
 //   /blog/go/request-routers/comments   no match
 //
+//  Path: /:param
+//
+//  Requests:
+//   /									 match: param=""
+//   /blog								 match: param="blog"
+//   /blog/go							 no match
+//
 // Catch-all parameters match anything until the path end, including the
 // directory index (the '/' before the catch-all). Since they match anything
 // until the end, catch-all parameters must always be the final path element.
@@ -79,6 +86,11 @@
 //   /files/templates/article.html       match: filepath="/templates/article.html"
 //   /files                              no match
 //
+//  Path: /*any
+//
+//  Requests:
+//   /									 match: any="/"
+//   /files/dir                          match: any="/files/dir"
 package fastroute
 
 import (
