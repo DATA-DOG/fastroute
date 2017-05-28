@@ -71,9 +71,9 @@
 //  Path: /:param
 //
 //  Requests:
-//   /									 match: param=""
-//   /blog								 match: param="blog"
-//   /blog/go							 no match
+//   /                                   match: param=""
+//   /blog                               match: param="blog"
+//   /blog/go                            no match
 //
 // Catch-all parameters match anything until the path end, including the
 // directory index (the '/' before the catch-all). Since they match anything
@@ -89,7 +89,7 @@
 //  Path: /*any
 //
 //  Requests:
-//   /									 match: any="/"
+//   /                                   match: any="/"
 //   /files/dir                          match: any="/files/dir"
 package fastroute
 

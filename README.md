@@ -22,6 +22,8 @@ holding all the context.
 
 **fastroute** is extremely flexible, because it has only static,
 unbounded functions. Allows unlimited ways to compose router.
+The exported API is done and will never change, **backward
+compatibility is now guaranteed**.
 
 See the following example:
 
@@ -65,9 +67,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	))
 }
 ```
-
-The exported API is done and will never change, **backward compatibility is
-now guaranteed** unless there are go1.x incompatible changes.
 
 In overall, it is **not all in one** router, it is the same **http.Handler**
 with do it yourself style, but with **zero allocations** path pattern matching.
