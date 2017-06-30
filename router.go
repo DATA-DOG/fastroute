@@ -332,7 +332,7 @@ func New(path string, handler interface{}) Router {
 func match(segments []string, url string, ps *Params, ts bool) bool {
 	for _, segment := range segments {
 		switch {
-		case len(url) == 0:
+		case len(url) == 0 || url[0] != '/':
 			return false
 		case segment[1] == ':':
 			end := 1
