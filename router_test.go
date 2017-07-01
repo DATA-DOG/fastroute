@@ -220,6 +220,10 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		New("/applications/:client_id/tokens", handler),
 		New("/repos/:owner/:repo/issues/:number/labels/:name", handler),
 		New("/files/*filepath", handler),
+		New("/hello/:name", handler),
+		New("/search/", handler),
+		New("/search/:query", handler),
+		New("/ünìcodé.html", handler),
 	)
 
 	type kv map[string]string // reduce clutter
@@ -230,6 +234,8 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		params  kv
 		match   bool
 	}{
+		{"/hello/john", "/hello/:name", kv{"name": "john"}, true},
+		{"/hellowe", "", kv{}, false},
 		{"/a/dic/c", "/a/:b/c", kv{"b": "dic"}, true},
 		{"/a/d/c", "/a/:b/c", kv{"b": "d"}, true},
 		{"/a/c", "", kv{}, false},
@@ -245,6 +251,10 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		{"/files/", "/files/*filepath", kv{"filepath": "/"}, true},
 		{"/files", "", kv{}, false},
 		{"/files/css/style.css", "/files/*filepath", kv{"filepath": "/css/style.css"}, true},
+		{"/search/", "/search/", kv{}, true},
+		{"/search/someth!ng+in+ünìcodé", "/search/:query", kv{"query": "someth!ng+in+ünìcodé"}, true},
+		{"/search/someth!ng+in+ünìcodé/", "", kv{}, false},
+		{"/ünìcodé.html", "/ünìcodé.html", kv{}, true},
 	}
 
 	for i, c := range cases {

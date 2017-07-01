@@ -89,12 +89,12 @@ See [benchmark results](#benchmarks) for more details.
 Here are some common usage guidelines:
 
 - [Custom Not Found](#custom-not-found-handler)
-- [Hit counting frequently accessed routes](#hit-counting-frequently-accessed-routes)
 - [Method Not Found](#method-not-found-support)
 - [Options](#options)
 - [Combining static routes](#combining-static-routes)
 - [Trailing slash or fixed path redirects](#trailing-slash-or-fixed-path-redirects)
 - [Named routes](#named-routes)
+- [Hit counting frequently accessed routes](#hit-counting-frequently-accessed-routes)
 
 ### Custom Not Found handler
 
@@ -134,89 +134,6 @@ This way, it is possible to extend **fastroute.Router** with various middleware,
 - Method not found handler.
 - Fixed path or trailing slash redirects. Based on your chosen route layout.
 - Options or **CORS**.
-
-### Hit counting frequently accessed routes
-
-In cases where **n** number of routes is very high and it is unknown what routes
-would be most frequently accessed or it changes during runtime, in order to
-highly improve performance, you can use **hit count** based reordering middleware.
-
-``` go
-package main
-
-import (
-	"fmt"
-	"net/http"
-	"sort"
-
-	fr "github.com/DATA-DOG/fastroute"
-)
-
-var routes = map[string]fr.Router{
-	"GET": fr.Chain(
-		// here follows frequently accessed routes
-		HitCountingOrderedChain(
-			fr.New("/", handler),
-			fr.New("/health", handler),
-			fr.New("/status", handler),
-		),
-		// less frequently accessed routes
-		fr.New("/hello/:name/:surname", handler),
-		fr.New("/hello/:name", handler),
-	),
-	"POST": fr.Chain(
-		fr.New("/users", handler),
-		fr.New("/users/:id", handler),
-	),
-}
-
-// serves routes by request method
-var router = fr.RouterFunc(func(req *http.Request) http.Handler {
-	return routes[req.Method] // fastroute.Router is also http.Handler
-})
-
-func main() {
-	http.ListenAndServe(":8080", router)
-}
-
-func HitCountingOrderedChain(routes ...fr.Router) fr.Router {
-	type HitCounter struct {
-		fr.Router
-		hits int64
-	}
-
-	hitRoutes := make([]*HitCounter, len(routes))
-	for i, r := range routes {
-		hitRoutes[i] = &HitCounter{Router: r}
-	}
-
-	return fr.RouterFunc(func(req *http.Request) http.Handler {
-		for i, r := range hitRoutes {
-			if h := r.Route(req); h != nil {
-				r.hits++
-				// reorder route hit is behind one third of routes
-				if i > len(hitRoutes)*30/100 {
-					sort.Slice(hitRoutes, func(i, j int) bool {
-						return hitRoutes[i].hits > hitRoutes[j].hits
-					})
-				}
-				return h
-			}
-		}
-		return nil
-	})
-}
-
-func handler(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(w, fmt.Sprintf(
-		`%s "%s", pattern: "%s", parameters: "%v"`,
-		req.Method,
-		req.URL.Path,
-		fr.Pattern(req),
-		fr.Parameters(req),
-	))
-}
-```
 
 ### Method not found support
 
@@ -584,6 +501,89 @@ func main() {
 
 func handler(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(w, fmt.Sprintf(`%s "%s"`, req.Method, req.URL.Path))
+}
+```
+
+### Hit counting frequently accessed routes
+
+In cases where **n** number of routes is very high and it is unknown what routes
+would be most frequently accessed or it changes during runtime, in order to
+highly improve performance, you can use **hit count** based reordering middleware.
+
+``` go
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"sort"
+
+	fr "github.com/DATA-DOG/fastroute"
+)
+
+var routes = map[string]fr.Router{
+	"GET": fr.Chain(
+		// here follows frequently accessed routes
+		HitCountingOrderedChain(
+			fr.New("/", handler),
+			fr.New("/health", handler),
+			fr.New("/status", handler),
+		),
+		// less frequently accessed routes
+		fr.New("/hello/:name/:surname", handler),
+		fr.New("/hello/:name", handler),
+	),
+	"POST": fr.Chain(
+		fr.New("/users", handler),
+		fr.New("/users/:id", handler),
+	),
+}
+
+// serves routes by request method
+var router = fr.RouterFunc(func(req *http.Request) http.Handler {
+	return routes[req.Method] // fastroute.Router is also http.Handler
+})
+
+func main() {
+	http.ListenAndServe(":8080", router)
+}
+
+func HitCountingOrderedChain(routes ...fr.Router) fr.Router {
+	type HitCounter struct {
+		fr.Router
+		hits int64
+	}
+
+	hitRoutes := make([]*HitCounter, len(routes))
+	for i, r := range routes {
+		hitRoutes[i] = &HitCounter{Router: r}
+	}
+
+	return fr.RouterFunc(func(req *http.Request) http.Handler {
+		for i, r := range hitRoutes {
+			if h := r.Route(req); h != nil {
+				r.hits++
+				// reorder route hit is behind one third of routes
+				if i > len(hitRoutes)*30/100 {
+					sort.Slice(hitRoutes, func(i, j int) bool {
+						return hitRoutes[i].hits > hitRoutes[j].hits
+					})
+				}
+				return h
+			}
+		}
+		return nil
+	})
+}
+
+func handler(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintln(w, fmt.Sprintf(
+		`%s "%s", pattern: "%s", parameters: "%v"`,
+		req.Method,
+		req.URL.Path,
+		fr.Pattern(req),
+		fr.Parameters(req),
+	))
 }
 ```
 
