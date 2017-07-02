@@ -221,8 +221,8 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		New("/repos/:owner/:repo/issues/:number/labels/:name", handler),
 		New("/files/*filepath", handler),
 		New("/hello/:name", handler),
-		New("/search/", handler),
 		New("/search/:query", handler),
+		New("/search/", handler),
 		New("/ünìcodé.html", handler),
 	)
 
@@ -252,6 +252,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 		{"/files", "", kv{}, false},
 		{"/files/css/style.css", "/files/*filepath", kv{"filepath": "/css/style.css"}, true},
 		{"/search/", "/search/", kv{}, true},
+		{"/search", "", kv{}, false},
 		{"/search/someth!ng+in+ünìcodé", "/search/:query", kv{"query": "someth!ng+in+ünìcodé"}, true},
 		{"/search/someth!ng+in+ünìcodé/", "", kv{}, false},
 		{"/ünìcodé.html", "/ünìcodé.html", kv{}, true},

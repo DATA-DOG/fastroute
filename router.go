@@ -71,8 +71,8 @@
 //  Path: /:param
 //
 //  Requests:
-//   /                                   match: param=""
 //   /blog                               match: param="blog"
+//   /                                   no match
 //   /blog/go                            no match
 //
 // Catch-all parameters match anything until the path end, including the
@@ -334,7 +334,7 @@ func match(segments []string, url string, ps *Params, ts bool) bool {
 		switch {
 		case len(url) == 0 || url[0] != '/':
 			return false
-		case segment[1] == ':':
+		case segment[1] == ':' && len(url) > 1:
 			end := 1
 			for end < len(url) && url[end] != '/' {
 				end++
