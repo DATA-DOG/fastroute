@@ -517,6 +517,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 
 	fr "github.com/DATA-DOG/fastroute"
 )
@@ -558,8 +559,11 @@ func HitCountingOrderedChain(routes ...fr.Router) fr.Router {
 	for i, r := range routes {
 		hitRoutes[i] = &HitCounter{Router: r}
 	}
+	mu := sync.Mutex{}
 
 	return fr.RouterFunc(func(req *http.Request) http.Handler {
+		mu.Lock()
+		defer mu.Unlock()
 		for i, r := range hitRoutes {
 			if h := r.Route(req); h != nil {
 				r.hits++
