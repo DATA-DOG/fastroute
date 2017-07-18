@@ -7,9 +7,62 @@ import (
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestRaceConditionForMatchingSingleStaticRoute(t *testing.T) {
+	t.Parallel()
+
+	router := New("/static/route", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
+
+	execFunc := func(wg *sync.WaitGroup) {
+		req, _ := http.NewRequest("GET", "/static/route", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatal("expected OK status")
+		}
+		wg.Done()
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go execFunc(&wg)
+	}
+	wg.Wait()
+}
+
+func TestRaceConditionForMatchingSingleDynamicRoute(t *testing.T) {
+	t.Parallel()
+
+	router := New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
+
+	execFunc := func(wg *sync.WaitGroup) {
+		req, _ := http.NewRequest("GET", "/users/5", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatal("expected OK status")
+		}
+		wg.Done()
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go execFunc(&wg)
+	}
+	wg.Wait()
+}
 
 func TestRecyclesParameters(t *testing.T) {
 	t.Parallel()
