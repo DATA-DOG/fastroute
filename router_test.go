@@ -1,4 +1,4 @@
-package fastroute
+package fastroute_test
 
 import (
 	"fmt"
@@ -10,12 +10,97 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/fastroute"
 )
+
+func Example() {
+	handler := func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "Hello, %s", fastroute.Parameters(req).ByName("name"))
+	}
+
+	var routes = map[string]fastroute.Router{
+		"GET": fastroute.Chain(
+			fastroute.New("/", handler),
+			fastroute.New("/hello/:name/:surname", handler),
+			fastroute.New("/hello/:name", handler),
+		),
+		"POST": fastroute.Chain(
+			fastroute.New("/users", handler),
+			fastroute.New("/users/:name", handler),
+		),
+	}
+
+	http.ListenAndServe(":8080", fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		return routes[req.Method] // fastroute.Router is also http.Handler
+	}))
+}
+
+func ExampleNew() {
+	http.ListenAndServe(":8080", fastroute.New("/hello/:name", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "Hello, %s", fastroute.Parameters(req).ByName("name"))
+	}))
+}
+
+func ExampleChain() {
+	handler := func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "Hello, %s", fastroute.Parameters(req).ByName("name"))
+	}
+
+	router := fastroute.Chain(
+		fastroute.New("/", handler),
+		fastroute.New("/hello/:name", handler),
+	)
+
+	thenNotFound := fastroute.RouterFunc(func(req *http.Request) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(404)
+			fmt.Fprintln(w, "Ooops, looks like you mistyped the URL:", req.URL.Path)
+		})
+	})
+
+	router = fastroute.Chain(router, thenNotFound)
+
+	http.ListenAndServe(":8080", router)
+}
+
+func ExampleRecycle() {
+	handler := func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "Hello, %s", fastroute.Parameters(req).ByName("name"))
+	}
+
+	router := fastroute.New("/hello/:name", handler)
+
+	req, err := http.NewRequest("GET", "/hello/john", nil)
+	if err != nil {
+		panic(err) // handle error
+	}
+
+	if h := router.Route(req); h != nil {
+		// request is routed to handler h
+		// now it has parameters
+		fmt.Println("Name:", fastroute.Parameters(req).ByName("name"))
+
+		// and pattern matched
+		fmt.Println("Pattern:", fastroute.Pattern(req))
+
+		// since parameters are not reallocated, we need to recycle them
+		// unless we actually serve this matched handler
+		fastroute.Recycle(req)
+
+		// there are no more request parameters or pattern
+		fmt.Printf("After recycle name is now empty: '%s'", fastroute.Parameters(req).ByName("name"))
+	}
+	// Output:
+	// Name: john
+	// Pattern: /hello/:name
+	// After recycle name is now empty: ''
+}
 
 func TestRaceConditionForMatchingSingleStaticRoute(t *testing.T) {
 	t.Parallel()
 
-	router := New("/static/route", func(w http.ResponseWriter, r *http.Request) {
+	router := fastroute.New("/static/route", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})
 
@@ -41,7 +126,7 @@ func TestRaceConditionForMatchingSingleStaticRoute(t *testing.T) {
 func TestRaceConditionForMatchingSingleDynamicRoute(t *testing.T) {
 	t.Parallel()
 
-	router := New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
+	router := fastroute.New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})
 
@@ -67,7 +152,7 @@ func TestRaceConditionForMatchingSingleDynamicRoute(t *testing.T) {
 func TestRecyclesParameters(t *testing.T) {
 	t.Parallel()
 
-	router := New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
+	router := fastroute.New("/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("not expected invocation")
 	})
 
@@ -76,23 +161,20 @@ func TestRecyclesParameters(t *testing.T) {
 		t.Fatalf("expected request for path: %s to be routed, but it was not", req.URL.Path)
 	}
 
-	if len(Parameters(req)) != 1 {
-		t.Fatalf("expected one parameter, but there was: %+v", Parameters(req))
+	if len(fastroute.Parameters(req)) != 1 {
+		t.Fatalf("expected one parameter, but there was: %+v", fastroute.Parameters(req))
 	}
 
-	Recycle(req)
+	fastroute.Recycle(req)
 
-	if len(Parameters(req)) != 0 {
+	if len(fastroute.Parameters(req)) != 0 {
 		t.Fatal("should have recycled parameters")
-	}
-	if _, ok := req.Body.(*parameters); ok {
-		t.Fatal("should have reset request body")
 	}
 }
 
 func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 	t.Parallel()
-	router := New("/xx", func(w http.ResponseWriter, r *http.Request) {
+	router := fastroute.New("/xx", func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("not expected invocation")
 	})
 	req, err := http.NewRequest("GET", "/any", nil)
@@ -114,16 +196,16 @@ func TestShouldRouteRouterAsHandler(t *testing.T) {
 		w.Write([]byte("OK"))
 	}
 
-	routes := map[string]Router{
-		"GET":  New("/users", handler),
-		"POST": New("/users/:id", handler),
+	routes := map[string]fastroute.Router{
+		"GET":  fastroute.New("/users", handler),
+		"POST": fastroute.New("/users/:id", handler),
 	}
 
-	router := RouterFunc(func(req *http.Request) http.Handler {
+	router := fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		return routes[req.Method] // fastroute.Router is also http.Handler
 	})
 
-	app := Chain(router, New("/any", handler))
+	app := fastroute.Chain(router, fastroute.New("/any", handler))
 
 	req, _ := http.NewRequest("GET", "/any", nil)
 	w := httptest.NewRecorder()
@@ -157,7 +239,7 @@ func TestEmptyRequestParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	params := Parameters(req)
+	params := fastroute.Parameters(req)
 	if len(params) > 0 {
 		t.Fatalf("expected empty params, but got: %d", len(params))
 	}
@@ -231,10 +313,10 @@ func TestStaticRouteMatcher(t *testing.T) {
 		"/users/hello/bin/": true,
 		"/":                 true,
 	}
-	router := Chain(
-		New("/users/hello/bin/", http.NotFoundHandler()),
-		New("/", http.NotFoundHandler()),
-		New("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
+	router := fastroute.Chain(
+		fastroute.New("/users/hello/bin/", http.NotFoundHandler()),
+		fastroute.New("/", http.NotFoundHandler()),
+		fastroute.New("/users/hello", func(w http.ResponseWriter, r *http.Request) {}),
 	)
 
 	for path, matched := range cases {
@@ -249,12 +331,12 @@ func TestStaticRouteMatcher(t *testing.T) {
 			t.Fatalf("did not expect to match: %s", path)
 		}
 
-		pat := Pattern(req)
+		pat := fastroute.Pattern(req)
 		if pat != path && matched {
 			t.Fatalf("expected matched pattern: %s is not the same: %s", pat, path)
 		}
 
-		params := Parameters(req)
+		params := fastroute.Parameters(req)
 		if len(params) > 0 {
 			t.Fatal("expected empty params")
 		}
@@ -266,17 +348,17 @@ func TestDynamicRouteMatcher(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, "OK")
 	})
-	router := Chain(
-		New("/a/:b/c", handler),
-		New("/category/:cid/product/*rest", handler),
-		New("/users/:id/:bid/", handler),
-		New("/applications/:client_id/tokens", handler),
-		New("/repos/:owner/:repo/issues/:number/labels/:name", handler),
-		New("/files/*filepath", handler),
-		New("/hello/:name", handler),
-		New("/search/:query", handler),
-		New("/search/", handler),
-		New("/ünìcodé.html", handler),
+	router := fastroute.Chain(
+		fastroute.New("/a/:b/c", handler),
+		fastroute.New("/category/:cid/product/*rest", handler),
+		fastroute.New("/users/:id/:bid/", handler),
+		fastroute.New("/applications/:client_id/tokens", handler),
+		fastroute.New("/repos/:owner/:repo/issues/:number/labels/:name", handler),
+		fastroute.New("/files/*filepath", handler),
+		fastroute.New("/hello/:name", handler),
+		fastroute.New("/search/:query", handler),
+		fastroute.New("/search/", handler),
+		fastroute.New("/ünìcodé.html", handler),
 	)
 
 	type kv map[string]string // reduce clutter
@@ -324,12 +406,12 @@ func TestDynamicRouteMatcher(t *testing.T) {
 			t.Fatalf("did not expect to match: %s", c.path)
 		}
 
-		pat := Pattern(req)
+		pat := fastroute.Pattern(req)
 		if pat != c.pattern {
 			t.Fatalf("expected matched pattern: %s does not match to: %s, case: %d", c.pattern, pat, i)
 		}
 
-		params := Parameters(req)
+		params := fastroute.Parameters(req)
 		for key, val := range c.params {
 			act := params.ByName(key)
 			if act != val {
@@ -348,7 +430,7 @@ func TestDynamicRouteMatcher(t *testing.T) {
 			t.Fatal("not expected response body or code")
 		}
 
-		if params := Parameters(req); len(params) != 0 {
+		if params := fastroute.Parameters(req); len(params) != 0 {
 			t.Fatal("parameters should have been flushed")
 		}
 	}
@@ -358,7 +440,7 @@ func TestGenerated(t *testing.T) {
 	routes, pat := generateRoutes(60, 5)
 	pat = strings.Replace(pat, ":id", "param", 1)
 
-	router := Chain(routes...)
+	router := fastroute.Chain(routes...)
 
 	req, err := http.NewRequest("GET", pat, nil)
 	if err != nil {
@@ -373,8 +455,8 @@ func TestGenerated(t *testing.T) {
 }
 
 func Benchmark_1Param(b *testing.B) {
-	router := New("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(Parameters(r).ByName("id")))
+	router := fastroute.New("/v1/users/:id", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(fastroute.Parameters(r).ByName("id")))
 	})
 
 	req, err := http.NewRequest("GET", "/v1/users/5", nil)
@@ -386,7 +468,7 @@ func Benchmark_1Param(b *testing.B) {
 }
 
 func Benchmark_Static(b *testing.B) {
-	router := New("/static/path/pattern", func(w http.ResponseWriter, r *http.Request) {
+	router := fastroute.New("/static/path/pattern", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})
 
@@ -400,15 +482,15 @@ func Benchmark_Static(b *testing.B) {
 
 func Benchmark_5Routes(b *testing.B) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(Parameters(r).ByName("id")))
+		w.Write([]byte(fastroute.Parameters(r).ByName("id")))
 	}
 
-	router := Chain(
-		New("/test/:id", handler),
-		New("/puff/path/:id", handler),
-		New("/home/user/:id", handler),
-		New("/home/jey/:id/:cat", handler),
-		New("/base/:id/user", handler),
+	router := fastroute.Chain(
+		fastroute.New("/test/:id", handler),
+		fastroute.New("/puff/path/:id", handler),
+		fastroute.New("/home/user/:id", handler),
+		fastroute.New("/home/jey/:id/:cat", handler),
+		fastroute.New("/base/:id/user", handler),
 	)
 
 	req, err := http.NewRequest("GET", "/home/jey/5/user", nil)
@@ -423,7 +505,7 @@ func Benchmark_1000Routes_1Param(b *testing.B) {
 	routes, pat := generateRoutes(1000, 10)
 	pat = strings.Replace(pat, ":id", "param", 1)
 
-	router := Chain(routes...)
+	router := fastroute.Chain(routes...)
 
 	req, err := http.NewRequest("GET", pat, nil)
 	if err != nil {
@@ -447,13 +529,13 @@ func Benchmark_1000Routes_1Param_HitCounting(b *testing.B) {
 	benchmark(b, router, req)
 }
 
-func HitCountingOrderedChain(routes ...Router) Router {
+func HitCountingOrderedChain(routes ...fastroute.Router) fastroute.Router {
 	hitRoutes := make([]*HitCounter, len(routes))
 	for i, r := range routes {
 		hitRoutes[i] = &HitCounter{Router: r}
 	}
 
-	return RouterFunc(func(req *http.Request) http.Handler {
+	return fastroute.RouterFunc(func(req *http.Request) http.Handler {
 		for i, r := range hitRoutes {
 			if h := r.Route(req); h != nil {
 				r.hits++
@@ -469,7 +551,7 @@ func HitCountingOrderedChain(routes ...Router) Router {
 }
 
 type HitCounter struct {
-	Router
+	fastroute.Router
 	hits int64
 }
 
@@ -489,14 +571,14 @@ func recoverOrFail(pattern, expectedMessage string, h interface{}, t *testing.T)
 		}
 	}()
 
-	New(pattern, h)
+	fastroute.New(pattern, h)
 
 	t.Fatalf(`was expecting pattern: "%s" to panic with message: "%s"`, pattern, expectedMessage)
 }
 
-func generateRoutes(num, segments int) (routes []Router, last string) {
+func generateRoutes(num, segments int) (routes []fastroute.Router, last string) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(Parameters(r).ByName("id")))
+		w.Write([]byte(fastroute.Parameters(r).ByName("id")))
 	}
 
 	alphabet := "abcdefghijklmnopqrstuvwxyz"
@@ -517,7 +599,7 @@ func generateRoutes(num, segments int) (routes []Router, last string) {
 		if _, duplicate := unique[path]; !duplicate {
 			unique[path] = true
 			last = path
-			routes = append(routes, New(path, handler))
+			routes = append(routes, fastroute.New(path, handler))
 		}
 		j++
 	}
@@ -525,11 +607,11 @@ func generateRoutes(num, segments int) (routes []Router, last string) {
 	return
 }
 
-func benchmark(b *testing.B, router Router, req *http.Request) {
+func benchmark(b *testing.B, router fastroute.Router, req *http.Request) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		router.Route(req)
-		Recycle(req)
+		fastroute.Recycle(req)
 	}
 }
