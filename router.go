@@ -107,23 +107,22 @@ import (
 // If there were no parameters and route is static
 // then empty parameter slice is returned.
 func Parameters(req *http.Request) Params {
-	if p := parameterized(req); p != nil {
+	if p, _ := req.Body.(*parameters); p != nil {
 		return p.params
 	}
 	return nil
 }
 
 // Pattern gives matched route path pattern
-// for this request.
+// for this request if it has path parameters.
 //
-// If request parameters were already flushed,
-// meaning - it was either served or recycled
-// manually, then empty string will be returned.
+// If request parameters were already recycled,
+// or route is static - it will return req.URL.Path.
 func Pattern(req *http.Request) string {
-	if p := parameterized(req); p != nil {
+	if p, _ := req.Body.(*parameters); p != nil {
 		return p.pattern
 	}
-	return ""
+	return req.URL.Path // if matched will be same as url path
 }
 
 // Recycle resets named parameters
@@ -142,7 +141,7 @@ func Pattern(req *http.Request) string {
 // then parameters will not be allocated, same
 // as for static paths.
 func Recycle(req *http.Request) {
-	if p := parameterized(req); p != nil {
+	if p, _ := req.Body.(*parameters); p != nil {
 		p.reset(req)
 	}
 }
@@ -273,10 +272,8 @@ func New(path string, handler interface{}) Router {
 
 	// maybe static route
 	if strings.IndexAny(p, ":*") == -1 {
-		ps := &parameters{pattern: p}
 		return RouterFunc(func(req *http.Request) http.Handler {
 			if p == req.URL.Path {
-				ps.wrap(req)
 				return h
 			}
 			return nil
@@ -311,19 +308,20 @@ func New(path string, handler interface{}) Router {
 	// extend handler in order to salvage parameters
 	handle := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		h.ServeHTTP(w, req)
-		if p := parameterized(req); p != nil {
+		if p, _ := req.Body.(*parameters); p != nil {
 			p.reset(req)
 		}
 	})
 
 	// dynamic route matcher
 	return RouterFunc(func(req *http.Request) http.Handler {
-		p := pool.Get().(*parameters)
-		if match(segments, req.URL.Path, &p.params, ts) {
-			p.wrap(req)
+		ps := pool.Get().(*parameters)
+		if match(segments, req.URL.Path, &ps.params, ts) {
+			ps.ReadCloser = req.Body
+			req.Body = ps
 			return handle
 		}
-		p.reset(req)
+		ps.reset(req)
 		return nil
 	})
 }
@@ -360,20 +358,8 @@ type parameters struct {
 	pool    *sync.Pool
 }
 
-func (p *parameters) wrap(req *http.Request) {
-	p.ReadCloser = req.Body
-	req.Body = p
-}
-
 func (p *parameters) reset(req *http.Request) {
-	if p.pool != nil { // only routes with path parameters have a pool
-		p.params = p.params[0:0]
-		p.pool.Put(p)
-	}
 	req.Body = p.ReadCloser
-}
-
-func parameterized(req *http.Request) *parameters {
-	p, _ := req.Body.(*parameters)
-	return p
+	p.params = p.params[0:0]
+	p.pool.Put(p)
 }

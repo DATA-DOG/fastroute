@@ -4,7 +4,7 @@
 
 # FastRoute
 
-Insanely **simple**, **idiomatic** and **fast** - **172** loc
+Insanely **simple**, **idiomatic** and **fast** - **161** loc
 http router for `golang`. Uses standard **http.Handler** and
 has no limitations to path matching compared to routers
 derived from **Trie (radix)** tree based solutions.
