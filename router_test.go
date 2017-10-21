@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -186,6 +187,54 @@ func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != 404 {
+		t.Fatalf("unexpected response code: %d", w.Code)
+	}
+}
+
+func TestShouldParseForm(t *testing.T) {
+	t.Parallel()
+
+	router := fastroute.New("/form/:id", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+
+		if r.Form.Get("field") != "value" {
+			t.Fatal("could not read field")
+		}
+
+		params := fastroute.Parameters(r)
+		if params == nil || params.ByName("id") != "1" {
+			t.Fatal("unexpected id param")
+		}
+	})
+
+	form := url.Values{}
+	form.Add("field", "value")
+
+	req, err := http.NewRequest("POST", "/form/1", strings.NewReader(form.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router.ServeHTTP(w, req)
+
+	if err := req.ParseForm(); err != nil {
+		t.Fatal(err)
+	}
+
+	if req.Form.Get("field") != "value" {
+		t.Fatal("could not read field")
+	}
+
+	params := fastroute.Parameters(req)
+	if params != nil {
+		t.Fatal("params should be reset after serving request")
+	}
+
+	if w.Code != 200 {
 		t.Fatalf("unexpected response code: %d", w.Code)
 	}
 }
