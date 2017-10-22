@@ -321,7 +321,8 @@ func New(path string, handler interface{}) Router {
 			req.Body = ps
 			return handle
 		}
-		ps.reset(req)
+		ps.params = ps.params[0:0]
+		pool.Put(ps)
 		return nil
 	})
 }

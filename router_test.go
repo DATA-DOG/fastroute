@@ -194,7 +194,10 @@ func TestShouldFallbackToNotFoundHandler(t *testing.T) {
 func TestShouldParseForm(t *testing.T) {
 	t.Parallel()
 
-	router := fastroute.New("/form/:id", func(w http.ResponseWriter, r *http.Request) {
+	route1 := fastroute.New("/ff/:id", func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not be matched")
+	})
+	route2 := fastroute.New("/form/:id", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +222,7 @@ func TestShouldParseForm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	router.ServeHTTP(w, req)
+	fastroute.Chain(route1, route2).ServeHTTP(w, req)
 
 	if err := req.ParseForm(); err != nil {
 		t.Fatal(err)
